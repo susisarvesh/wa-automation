@@ -8,6 +8,8 @@ import {
 import type { AccountRole } from "./roles";
 import type { AccessGrantStatus } from "./single-tenant";
 import { ensureAccessGrant } from "./access-grants";
+import { isEmailDomainAllowed } from "./domain-allowlist";
+import { writeAuditLog } from "@/lib/audit/log";
 
 export type WorkspaceAttachResult = {
   accountId: string;
@@ -38,6 +40,11 @@ export async function ensureUserWorkspace(
 ): Promise<WorkspaceAttachResult> {
   const email = user.email ?? "";
   const fullName = displayName(user);
+  if (!isEmailDomainAllowed(email)) {
+    throw new ForbiddenError(
+      "This email domain is not allowed. Ask the admin to add your domain to AUTH_ALLOWED_DOMAINS or invite your address.",
+    );
+  }
   const adminEmail = isPlatformAdmin(email);
   const legacyAccountId = getSingleTenantAccountId();
 
@@ -108,6 +115,14 @@ export async function ensureUserWorkspace(
       }
 
       const accessStatus = await ensureAccessGrant(admin, user);
+      void writeAuditLog(admin, {
+        action: "auth.login",
+        actorUserId: user.id,
+        accountId: legacy.id as string,
+        resourceType: "access_grants",
+        resourceId: user.id,
+        meta: { accessStatus, email, adminWorkspace: true },
+      });
       return {
         accountId: legacy.id as string,
         role: "owner",
@@ -200,6 +215,15 @@ export async function ensureUserWorkspace(
 
   const accessStatus = await ensureAccessGrant(admin, user);
   const role = (profile.account_role as AccountRole) || "owner";
+
+  void writeAuditLog(admin, {
+    action: "auth.login",
+    actorUserId: user.id,
+    accountId,
+    resourceType: "access_grants",
+    resourceId: user.id,
+    meta: { accessStatus, email },
+  });
 
   return {
     accountId,

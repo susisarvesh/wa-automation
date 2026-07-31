@@ -6,8 +6,24 @@ function authProvider(): "google" | "none" {
   return raw === "none" ? "none" : "google";
 }
 
+function isVercelProduction(): boolean {
+  return process.env.VERCEL_ENV === "production";
+}
+
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
+
+  // Never allow open-demo (token minting) on production deploys
+  if (
+    isVercelProduction() &&
+    authProvider() === "none" &&
+    path.startsWith("/api/mvp/")
+  ) {
+    return NextResponse.json(
+      { error: "Open demo is disabled in production" },
+      { status: 403 },
+    );
+  }
 
   // Open demo — no login gates (legacy auth URLs → home)
   if (authProvider() === "none") {

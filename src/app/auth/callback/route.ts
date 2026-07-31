@@ -50,7 +50,21 @@ export async function GET(request: Request) {
     await ensureUserWorkspace(supabaseAdmin(), data.user);
   } catch (err) {
     console.error("[auth/callback] workspace ensure failed:", err);
-    // Still allow login — profile trigger may have created enough to browse
+    const message =
+      err instanceof Error ? err.message : "workspace";
+    // Domain allowlist / hard failures should not leave a dangling session
+    if (
+      message.toLowerCase().includes("domain") ||
+      message.toLowerCase().includes("not allowed")
+    ) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(
+        new URL(
+          `/login?error=${encodeURIComponent(message)}`,
+          url.origin,
+        ),
+      );
+    }
   }
 
   return NextResponse.redirect(new URL(safeNext, url.origin));

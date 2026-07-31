@@ -22,6 +22,8 @@ export default function AdminPage() {
   const { isPlatformAdmin, loading: authLoading, user } = useAuth();
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch('/api/admin/users', { cache: 'no-store' });
@@ -86,6 +88,46 @@ export default function AdminPage() {
           </p>
         </div>
       </div>
+
+      <form
+        className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-end"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!inviteEmail.trim()) return;
+          setInviting(true);
+          try {
+            const res = await fetch('/api/admin/invites', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ email: inviteEmail.trim() }),
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body.error ?? 'Invite failed');
+            toast.success(`Invited ${inviteEmail.trim()} — auto-approved on login`);
+            setInviteEmail('');
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Invite failed');
+          } finally {
+            setInviting(false);
+          }
+        }}
+      >
+        <div className="min-w-0 flex-1">
+          <label className="text-xs font-medium text-muted-foreground">
+            Invite by email
+          </label>
+          <input
+            type="email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            placeholder="teammate@company.com"
+            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          />
+        </div>
+        <Button type="submit" disabled={inviting || !inviteEmail.trim()}>
+          {inviting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send invite'}
+        </Button>
+      </form>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <table className="w-full text-left text-sm">

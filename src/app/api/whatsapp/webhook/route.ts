@@ -10,6 +10,10 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { claimWebhookEvent } from '@/lib/whatsapp/webhook-idempotency'
+import { enqueueJob } from '@/lib/jobs/queue'
+import { reportError } from '@/lib/observability/report-error'
+import { log } from '@/lib/observability/logger'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -211,15 +215,30 @@ export async function POST(request: Request) {
   // (see issue #301). `after()` hands the callback to the runtime, which
   // keeps the function alive until it resolves (within the route's
   // maxDuration).
+  // Durable queue copy (retries / dead-letter via cron) + immediate
+  // after() processing for low latency. Idempotency keys prevent double work.
+  void enqueueJob(supabaseAdmin(), {
+    jobType: 'webhook.process',
+    payload: { body },
+  })
+
   after(async () => {
     try {
       await processWebhook(body)
     } catch (error) {
       console.error('Error processing webhook:', error)
+      await reportError(error, { route: 'whatsapp/webhook' })
     }
   })
 
   return NextResponse.json({ status: 'received' }, { status: 200 })
+}
+
+/** Used by job_queue drain when after() was interrupted. */
+export async function processWebhookJobPayload(payload: {
+  body?: { entry?: WhatsAppWebhookEntry[] }
+}) {
+  if (payload?.body) await processWebhook(payload.body)
 }
 
 async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
@@ -233,6 +252,17 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       // dedicated handler. Skip the messaging branches below so we
       // don't try to read message-shaped fields off a template event.
       if (isTemplateWebhookField(change.field)) {
+        const phoneNumberId =
+          (change.value as { metadata?: { phone_number_id?: string } })
+            ?.metadata?.phone_number_id || entry.id || 'template'
+        const templateKey = `${change.field}:${JSON.stringify(change.value).slice(0, 120)}`
+        const fresh = await claimWebhookEvent(supabaseAdmin(), {
+          accountId: null,
+          phoneNumberId,
+          wamid: templateKey,
+          eventType: 'template',
+        })
+        if (!fresh) continue
         await handleTemplateWebhookChange(
           { field: change.field, value: change.value as unknown },
           supabaseAdmin(),
@@ -241,71 +271,77 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       }
 
       const value = change.value
+      const phoneNumberId = value.metadata?.phone_number_id
+      if (!phoneNumberId) {
+        log.warn('webhook change missing phone_number_id')
+        continue
+      }
 
-      // Handle status updates
+      // Resolve account early for status + message tenancy
+      const { data: configRowsEarly } = await supabaseAdmin()
+        .from('whatsapp_config')
+        .select('account_id, user_id, access_token, phone_number_id')
+        .eq('phone_number_id', phoneNumberId)
+        .limit(2)
+
+      const accountIdEarly =
+        configRowsEarly?.length === 1
+          ? (configRowsEarly[0].account_id as string)
+          : null
+
+      // Handle status updates (account-scoped when possible)
       if (value.statuses) {
         for (const status of value.statuses) {
-          await handleStatusUpdate(status)
+          const fresh = await claimWebhookEvent(supabaseAdmin(), {
+            accountId: accountIdEarly,
+            phoneNumberId,
+            wamid: status.id,
+            eventType: 'status',
+          })
+          if (!fresh) continue
+          await handleStatusUpdate(status, phoneNumberId, accountIdEarly)
         }
       }
 
       // Handle incoming messages
       if (!value.messages || !value.contacts) continue
 
-      const phoneNumberId = value.metadata.phone_number_id
-
-      // Find user's config by phone_number_id. `.single()` returns
-      // PGRST116 for both 0 rows AND ≥2 rows — distinguish them so
-      // operators see the real cause in logs. ≥2 rows shouldn't happen
-      // post-migration 013 (UNIQUE constraint), but a row created
-      // before the constraint, or a race, would still surface here.
-      const { data: configRows, error: configError } = await supabaseAdmin()
-        .from('whatsapp_config')
-        .select('*')
-        .eq('phone_number_id', phoneNumberId)
-
-      if (configError) {
-        console.error(
-          'Error fetching whatsapp_config for phone_number_id:',
-          phoneNumberId,
-          configError
-        )
-        continue
-      }
-
-      if (!configRows || configRows.length === 0) {
+      if (!configRowsEarly || configRowsEarly.length === 0) {
         console.error('No config found for phone_number_id:', phoneNumberId)
         continue
       }
 
-      if (configRows.length > 1) {
+      if (configRowsEarly.length > 1) {
         console.error(
-          `Multiple configs (${configRows.length}) found for phone_number_id:`,
+          `Multiple configs (${configRowsEarly.length}) found for phone_number_id:`,
           phoneNumberId,
-          '— inbound message dropped. Resolve duplicates so each number maps to a single account.',
-          'Account owners:',
-          configRows.map((r: { account_id: string; user_id: string }) => `${r.account_id} (admin ${r.user_id})`)
+          '— inbound message dropped.',
         )
         continue
       }
 
-      const config = configRows[0]
-
+      const config = configRowsEarly[0]
       const decryptedAccessToken = decrypt(config.access_token)
 
       for (let i = 0; i < value.messages.length; i++) {
         const message = value.messages[i]
         const contact = value.contacts[i] || value.contacts[0]
 
+        const fresh = await claimWebhookEvent(supabaseAdmin(), {
+          accountId: config.account_id as string,
+          phoneNumberId,
+          wamid: message.id,
+          eventType: 'message',
+        })
+        if (!fresh) {
+          log.info('skip duplicate inbound wamid', { wamid: message.id })
+          continue
+        }
+
         await processMessage(
           message,
           contact,
-          // Tenancy — drives every contact / conversation lookup
-          // and the engines' active-row dispatch.
           config.account_id,
-          // Audit / sender-of-record — used as the user_id on row
-          // inserts that need it for NOT NULL FK compliance. Always
-          // the admin who saved the WhatsApp config.
           config.user_id,
           decryptedAccessToken
         )
@@ -356,24 +392,44 @@ function isValidStatusTransition(current: string, incoming: string): boolean {
   return ii > ci
 }
 
-async function handleStatusUpdate(status: {
-  id: string
-  status: string
-  timestamp: string
-  recipient_id: string
-}) {
-  // 1) Mirror onto messages (legacy behavior) — Meta's status values
-  //    already match the CHECK constraint on messages.status. No
-  //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
-  //    repeat across numbers), so this updates 0..N rows and must not
-  //    assume a single row.
-  const { error: msgErr } = await supabaseAdmin()
-    .from('messages')
-    .update({ status: status.status })
-    .eq('message_id', status.id)
+async function handleStatusUpdate(
+  status: {
+    id: string
+    status: string
+    timestamp: string
+    recipient_id: string
+  },
+  phoneNumberId: string,
+  accountId: string | null,
+) {
+  // 1) Mirror onto messages — scoped via conversation.account_id
+  //    (prevents cross-tenant wamid collisions).
+  if (accountId) {
+    const { data: scoped, error: findErr } = await supabaseAdmin()
+      .from('messages')
+      .select('id, conversation:conversations!inner(account_id)')
+      .eq('message_id', status.id)
+      .eq('conversations.account_id', accountId)
 
-  if (msgErr) {
-    console.error('Error updating message status:', msgErr)
+    if (findErr) {
+      console.error('Error finding message for status:', findErr)
+    } else if (scoped?.length) {
+      const { error: msgErr } = await supabaseAdmin()
+        .from('messages')
+        .update({ status: status.status })
+        .in(
+          'id',
+          scoped.map((m: { id: string }) => m.id),
+        )
+      if (msgErr) {
+        console.error('Error updating message status:', msgErr)
+      }
+    }
+  } else {
+    log.warn('status update without account scope', {
+      wamid: status.id,
+      phoneNumberId,
+    })
   }
 
   // Webhook fan-out for this status change happens at the END of this

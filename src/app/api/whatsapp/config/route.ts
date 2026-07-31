@@ -12,6 +12,12 @@ import {
   requireGranted,
   toErrorResponse,
 } from '@/lib/auth/account'
+import { writeAuditLog } from '@/lib/audit/log'
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from '@/lib/rate-limit'
 
 // Lazy-initialised service-role client. We need it to detect a
 // phone_number_id already claimed by a *different* user — under RLS,
@@ -129,6 +135,11 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const ctx = await requireGranted('admin')
+    const rl = checkRateLimit(
+      `whatsapp:config:${ctx.accountId}`,
+      RATE_LIMITS.configSave,
+    )
+    if (!rl.success) return rateLimitResponse(rl)
     const { supabase, accountId, userId } = ctx
     const user = { id: userId }
 
@@ -362,6 +373,20 @@ export async function POST(request: Request) {
       }
     }
 
+    await writeAuditLog(supabaseAdmin(), {
+      action: existing ? 'whatsapp.token_rotate' : 'whatsapp.connect',
+      actorUserId: user.id,
+      accountId,
+      resourceType: 'whatsapp_config',
+      resourceId: phone_number_id,
+      meta: {
+        waba_id: waba_id || null,
+        registered: !registrationError,
+        registration_error: registrationError,
+      },
+      ip: request.headers.get('x-forwarded-for'),
+    })
+
     if (registrationError) {
       // Save succeeded but the number isn't actually live. Return
       // 200 with a structured error so the UI can show the specific
@@ -399,10 +424,10 @@ export async function POST(request: Request) {
  * Used by the "Reset Configuration" button to recover from a corrupted
  * encrypted token (mismatched ENCRYPTION_KEY across environments).
  */
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
     const ctx = await requireGranted('admin')
-    const { supabase, accountId } = ctx
+    const { supabase, accountId, userId } = ctx
 
     const { error: deleteError } = await supabase
       .from('whatsapp_config')
@@ -416,6 +441,14 @@ export async function DELETE() {
         { status: 500 }
       )
     }
+
+    await writeAuditLog(supabaseAdmin(), {
+      action: 'whatsapp.disconnect',
+      actorUserId: userId,
+      accountId,
+      resourceType: 'whatsapp_config',
+      ip: request.headers.get('x-forwarded-for'),
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

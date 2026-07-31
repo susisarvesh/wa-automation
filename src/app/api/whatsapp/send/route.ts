@@ -40,6 +40,13 @@ export async function POST(request: Request) {
     if (!limit.success) {
       return rateLimitResponse(limit)
     }
+    const accountLimit = checkRateLimit(
+      `send:account:${accountId}`,
+      RATE_LIMITS.sendAccount,
+    )
+    if (!accountLimit.success) {
+      return rateLimitResponse(accountLimit)
+    }
 
     const body = await request.json()
     const {

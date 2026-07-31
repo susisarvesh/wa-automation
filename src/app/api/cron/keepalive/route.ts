@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron/auth";
 import { supabaseAdmin } from "@/lib/automations/admin-client";
+import { drainJobQueue } from "@/lib/jobs/drain";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 /**
  * Lightweight keep-warm + health ping.
@@ -23,6 +24,7 @@ export async function GET(request: Request) {
   const started = Date.now();
   let dbOk = false;
   let pendingDue = 0;
+  let jobs = { processed: 0, failed: 0 };
 
   try {
     const admin = supabaseAdmin();
@@ -46,6 +48,9 @@ export async function GET(request: Request) {
         cache: "no-store",
       }).catch(() => null);
     }
+
+    // Retry / catch-up for webhook.process jobs (idempotent).
+    jobs = await drainJobQueue(admin, 15);
   } catch (err) {
     console.error("[cron/keepalive]", err);
   }
@@ -55,6 +60,7 @@ export async function GET(request: Request) {
     warm: true,
     db: dbOk,
     pending_due: pendingDue,
+    jobs,
     ms: Date.now() - started,
     at: new Date().toISOString(),
   });

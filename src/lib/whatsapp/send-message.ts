@@ -328,6 +328,28 @@ export async function sendMessageToConversation(
     templateRow = data ?? null;
   }
 
+  const withRateLimitRetry = async (
+    fn: () => Promise<string>,
+  ): Promise<string> => {
+    let lastErr: unknown;
+    for (let i = 0; i < 3; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        const rateLimited =
+          /\b429\b/i.test(msg) ||
+          /rate limit/i.test(msg) ||
+          /too many requests/i.test(msg);
+        if (!rateLimited || i === 2) throw err;
+        const delay = 500 * 2 ** i + Math.floor(Math.random() * 200);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
+  };
+
   const attempt = async (phone: string): Promise<string> => {
     if (messageType === 'template') {
       const result = await sendTemplateMessage({
@@ -405,7 +427,7 @@ export async function sendMessageToConversation(
 
     for (const variant of variants) {
       try {
-        waMessageId = await attempt(variant);
+        waMessageId = await withRateLimitRetry(() => attempt(variant));
         workingPhone = variant;
         lastError = null;
         break;

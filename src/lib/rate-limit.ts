@@ -141,6 +141,10 @@ export const RATE_LIMITS = {
    *  while still bounding accidental abuse from a script run in a
    *  loop or a compromised admin session spamming role flips. */
   adminAction: { limit: 30, windowMs: 60_000 },
+  /** WhatsApp Connect save / token rotate — per account. */
+  configSave: { limit: 10, windowMs: 60_000 },
+  /** Outbound send budget per account (shared across agents). */
+  sendAccount: { limit: 120, windowMs: 60_000 },
   /** Public REST API (`/api/v1/*`), keyed per API key. 120/min ≈ 2
    *  req/s sustained — comfortable for a polling integration or an
    *  automation firing on inbound events, while bounding a runaway

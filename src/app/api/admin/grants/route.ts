@@ -5,6 +5,12 @@ import {
 } from "@/lib/auth/account";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
 import { setAccessGrantStatus } from "@/lib/auth/access-grants";
+import { writeAuditLog } from "@/lib/audit/log";
+import {
+  checkRateLimit,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rate-limit";
 
 /**
  * POST /api/admin/grants
@@ -13,6 +19,12 @@ import { setAccessGrantStatus } from "@/lib/auth/access-grants";
 export async function POST(request: Request) {
   try {
     const ctx = await requirePlatformAdmin();
+    const rl = checkRateLimit(
+      `admin:grants:${ctx.userId}`,
+      RATE_LIMITS.adminAction,
+    );
+    if (!rl.success) return rateLimitResponse(rl);
+
     const body = (await request.json().catch(() => null)) as {
       userId?: string;
       action?: string;
@@ -41,17 +53,31 @@ export async function POST(request: Request) {
       .eq("user_id", userId)
       .maybeSingle();
 
+    const status = action === "approve" ? "approved" : "revoked";
     await setAccessGrantStatus(admin, {
       userId,
-      status: action === "approve" ? "approved" : "revoked",
+      status,
       decidedBy: ctx.userId,
       email: (profile?.email as string) || undefined,
+    });
+
+    await writeAuditLog(admin, {
+      action: action === "approve" ? "access.approve" : "access.revoke",
+      actorUserId: ctx.userId,
+      accountId: ctx.accountId,
+      resourceType: "access_grants",
+      resourceId: userId,
+      meta: {
+        email: profile?.email ?? null,
+        status,
+      },
+      ip: request.headers.get("x-forwarded-for"),
     });
 
     return NextResponse.json({
       ok: true,
       userId,
-      status: action === "approve" ? "approved" : "revoked",
+      status,
     });
   } catch (err) {
     return toErrorResponse(err);

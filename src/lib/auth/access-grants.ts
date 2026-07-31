@@ -51,14 +51,36 @@ export async function ensureAccessGrant(
     return existing.status as AccessGrantStatus;
   }
 
-  const status: AccessGrantStatus = adminUser ? "approved" : "pending";
+  // Invite-by-email: pending platform_invites auto-approve on first login
+  let invited = false;
+  if (!adminUser && email) {
+    const { data: invite } = await admin
+      .from("platform_invites")
+      .select("id, invited_by")
+      .eq("status", "pending")
+      .ilike("email", email)
+      .maybeSingle();
+    if (invite) {
+      invited = true;
+      await admin
+        .from("platform_invites")
+        .update({
+          status: "accepted",
+          accepted_at: new Date().toISOString(),
+        })
+        .eq("id", invite.id);
+    }
+  }
+
+  const status: AccessGrantStatus =
+    adminUser || invited ? "approved" : "pending";
   const now = new Date().toISOString();
   const { error } = await admin.from("access_grants").insert({
     user_id: user.id,
     email,
     status,
     decided_by: adminUser ? user.id : null,
-    decided_at: adminUser ? now : null,
+    decided_at: adminUser || invited ? now : null,
     created_at: now,
     updated_at: now,
   });
