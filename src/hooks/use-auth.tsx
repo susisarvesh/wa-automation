@@ -188,6 +188,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         if (openDemo) {
+          // Clear a corrupted local session first — Brave / old cookies can
+          // leave setSession hanging and freeze the whole dashboard.
+          await supabase.auth.signOut({ scope: "local" }).catch(() => {});
           const res = await fetch("/api/mvp/session");
           if (!res.ok) throw new Error("session bootstrap failed");
           const body = (await res.json()) as {

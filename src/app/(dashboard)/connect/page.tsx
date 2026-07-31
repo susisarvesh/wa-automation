@@ -111,7 +111,11 @@ export default function ConnectPage() {
         );
       }
       setLastTestOk(body.message_id as string);
-      toast.success('Test message sent via Meta — check the phone');
+      toast.success(
+        body.kind === 'template'
+          ? 'hello_world template sent — check WhatsApp'
+          : 'Test message sent via Meta — check the phone',
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Send failed');
     } finally {
@@ -122,28 +126,36 @@ export default function ConnectPage() {
   const load = useCallback(
     async (acctId: string) => {
       setLoading(true);
-      const supabase = createClient();
-      const { data } = await supabase
-        .from('whatsapp_config')
-        .select('phone_number_id, waba_id, verify_token')
-        .eq('account_id', acctId)
-        .maybeSingle();
-      if (data?.phone_number_id) {
-        setBusinessNumber(data.phone_number_id);
-        setBusinessAccount(data.waba_id ?? '');
-        setVerifyPhrase('');
-        setAlreadyConnected(true);
-        setStep(3);
-        await testMetaLive();
+      try {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from('whatsapp_config')
+          .select('phone_number_id, waba_id, verify_token')
+          .eq('account_id', acctId)
+          .maybeSingle();
+        if (data?.phone_number_id) {
+          setBusinessNumber(data.phone_number_id);
+          setBusinessAccount(data.waba_id ?? '');
+          setVerifyPhrase('');
+          setAlreadyConnected(true);
+          setStep(3);
+          // Don't block the page on Meta Graph — show UI, then refresh status.
+          void testMetaLive();
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     },
     [testMetaLive],
   );
 
   useEffect(() => {
-    if (authLoading || profileLoading || !accountId) return;
-    load(accountId);
+    if (authLoading || profileLoading) return;
+    if (!accountId) {
+      setLoading(false);
+      return;
+    }
+    void load(accountId);
   }, [accountId, authLoading, profileLoading, load]);
 
   async function saveAndConnect() {
@@ -424,8 +436,10 @@ export default function ConnectPage() {
                   Send a test WhatsApp
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Proves Meta can deliver — not just that credentials look valid.
-                  For test numbers, add the recipient under Meta → API Setup → To.
+                  Sends Meta&apos;s <code className="rounded bg-muted px-1">hello_world</code>{" "}
+                  template (required for first contact). Use your personal number
+                  with country code, e.g. <code className="rounded bg-muted px-1">+919790985447</code>.
+                  Recipient must be on Meta → API Setup → To.
                 </p>
               </div>
               <div className="space-y-2">
@@ -434,7 +448,7 @@ export default function ConnectPage() {
                   id="test-to"
                   value={testTo}
                   onChange={(e) => setTestTo(e.target.value)}
-                  placeholder="+919876543210"
+                  placeholder="+919790985447"
                   inputMode="tel"
                   autoComplete="tel"
                   className="rounded-xl"
@@ -451,12 +465,13 @@ export default function ConnectPage() {
                 ) : (
                   <Send className="mr-2 h-4 w-4" />
                 )}
-                Send test message
+                Send test template
               </Button>
               {lastTestOk ? (
                 <p className="text-xs text-muted-foreground">
-                  Delivered to Meta · message id{' '}
+                  Accepted by Meta · message id{" "}
                   <code className="rounded bg-muted px-1">{lastTestOk}</code>
+                  . Check WhatsApp for the hello_world template.
                 </p>
               ) : null}
             </div>

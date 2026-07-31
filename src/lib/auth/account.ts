@@ -40,14 +40,20 @@ export interface AccountContext {
   account: { id: string; name: string };
 }
 
-let bootstrapPromise: Promise<void> | null = null;
+type OpenDemoBootstrap = {
+  userId: string;
+  accountId: string;
+  accountName: string;
+};
+
+let bootstrapPromise: Promise<OpenDemoBootstrap> | null = null;
 
 async function ensureOpenDemoBootstrap(
   admin: SupabaseClient,
-  accountId: string,
-): Promise<{ userId: string; accountName: string }> {
+  preferredAccountId: string,
+): Promise<OpenDemoBootstrap> {
   if (!bootstrapPromise) {
-    bootstrapPromise = (async () => {
+    bootstrapPromise = (async (): Promise<OpenDemoBootstrap> => {
       const { data: listed } = await admin.auth.admin.listUsers({
         page: 1,
         perPage: 200,
@@ -91,21 +97,44 @@ async function ensureOpenDemoBootstrap(
         });
       }
 
+      // Prefer fixed SINGLE_TENANT_ACCOUNT_ID. If handle_new_user already
+      // created a personal account for this user (unique owner_user_id),
+      // reuse that workspace instead of failing the insert.
+      let workspaceId = preferredAccountId;
+      let accountName = "My Business";
+
       const { data: existingAccount } = await admin
         .from("accounts")
         .select("id, name")
-        .eq("id", accountId)
+        .eq("id", preferredAccountId)
         .maybeSingle();
 
-      if (!existingAccount) {
-        const { error: acctErr } = await admin.from("accounts").insert({
-          id: accountId,
-          name: "My Business",
-          owner_user_id: userId,
-        });
-        if (acctErr) {
-          console.error("[open-demo] account insert failed:", acctErr);
-          throw new ForbiddenError("Could not bootstrap workspace");
+      if (existingAccount) {
+        accountName = (existingAccount.name as string) || accountName;
+      } else {
+        const { data: ownedByUser } = await admin
+          .from("accounts")
+          .select("id, name")
+          .eq("owner_user_id", userId)
+          .maybeSingle();
+
+        if (ownedByUser) {
+          workspaceId = ownedByUser.id as string;
+          accountName = (ownedByUser.name as string) || accountName;
+          console.warn(
+            "[open-demo] fixed account missing; reusing owner account",
+            workspaceId,
+          );
+        } else {
+          const { error: acctErr } = await admin.from("accounts").insert({
+            id: preferredAccountId,
+            name: accountName,
+            owner_user_id: userId,
+          });
+          if (acctErr) {
+            console.error("[open-demo] account insert failed:", acctErr);
+            throw new ForbiddenError("Could not bootstrap workspace");
+          }
         }
       }
 
@@ -121,7 +150,7 @@ async function ensureOpenDemoBootstrap(
             user_id: userId,
             email: SINGLE_TENANT_EMAIL,
             full_name: "Business Owner",
-            account_id: accountId,
+            account_id: workspaceId,
             account_role: "owner",
           },
           { onConflict: "user_id" },
@@ -129,46 +158,33 @@ async function ensureOpenDemoBootstrap(
       } else {
         await admin
           .from("profiles")
-          .update({ account_id: accountId, account_role: "owner" })
+          .update({ account_id: workspaceId, account_role: "owner" })
           .eq("user_id", userId);
       }
 
       const { data: tag } = await admin
         .from("tags")
         .select("id")
-        .eq("account_id", accountId)
+        .eq("account_id", workspaceId)
         .eq("name", "Customer")
         .maybeSingle();
       if (!tag) {
         await admin.from("tags").insert({
-          account_id: accountId,
+          account_id: workspaceId,
           user_id: userId,
           name: "Customer",
           color: "#10b981",
         });
       }
+
+      return { userId, accountId: workspaceId, accountName };
     })().catch((err) => {
       bootstrapPromise = null;
       throw err;
     });
   }
 
-  await bootstrapPromise;
-
-  const { data: account } = await admin
-    .from("accounts")
-    .select("id, name, owner_user_id")
-    .eq("id", accountId)
-    .maybeSingle();
-
-  if (!account) {
-    throw new ForbiddenError("Workspace not found");
-  }
-
-  return {
-    userId: account.owner_user_id as string,
-    accountName: account.name as string,
-  };
+  return bootstrapPromise;
 }
 
 export async function getCurrentAccount(): Promise<AccountContext> {
@@ -200,11 +216,10 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
   // Open demo: service-role as synthetic owner
   if (isOpenDemoMode()) {
-    const accountId = getSingleTenantAccountId();
     const admin = supabaseAdmin();
-    const { userId, accountName } = await ensureOpenDemoBootstrap(
+    const { userId, accountId, accountName } = await ensureOpenDemoBootstrap(
       admin,
-      accountId,
+      getSingleTenantAccountId(),
     );
     return {
       supabase: admin,

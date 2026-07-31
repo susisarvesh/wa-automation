@@ -98,12 +98,22 @@ export async function GET(request: Request) {
       )
     }
 
+    // Env fallback so Meta can verify the webhook *before* Connect has
+    // saved whatsapp_config (chicken-and-egg on first setup).
+    const envVerify = (process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '').trim()
+    if (envVerify && verifyToken === envVerify) {
+      return new Response(challenge, {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain' },
+      })
+    }
+
     // Fetch all whatsapp configs to check verify tokens
     const { data: configs, error: configError } = await supabaseAdmin()
       .from('whatsapp_config')
       .select('id, verify_token')
 
-    if (configError || !configs) {
+    if (configError) {
       console.error('Error fetching configs for verification:', configError)
       return NextResponse.json(
         { error: 'Verification failed' },
@@ -116,7 +126,7 @@ export async function GET(request: Request) {
     // GCM if it was still in the legacy CBC format.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let matchedConfig: any = null
-    for (const config of configs) {
+    for (const config of configs ?? []) {
       if (!config.verify_token) continue
       try {
         if (decrypt(config.verify_token) === verifyToken) {
