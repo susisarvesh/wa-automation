@@ -14,7 +14,7 @@
 import { NextResponse } from "next/server";
 
 import {
-  requireRole,
+  requireRole, requireGranted,
   getCurrentAccount,
   toErrorResponse,
 } from "@/lib/auth/account";
@@ -30,6 +30,8 @@ export async function GET() {
     return NextResponse.json({
       account: ctx.account,
       role: ctx.role,
+      accessStatus: ctx.accessStatus,
+      isPlatformAdmin: ctx.isPlatformAdmin,
     });
   } catch (err) {
     return toErrorResponse(err);
@@ -40,7 +42,7 @@ const MAX_NAME_LEN = 80;
 
 export async function PATCH(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireGranted("admin");
 
     // Per-user limit on admin-class mutations. Bounds accidental
     // abuse (script run in a loop) and a compromised admin session

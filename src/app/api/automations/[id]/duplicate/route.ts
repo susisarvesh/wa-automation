@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireRole, toErrorResponse } from "@/lib/auth/account";
+import { requireRole, requireGranted, toErrorResponse } from "@/lib/auth/account";
 import { supabaseAdmin } from "@/lib/automations/admin-client";
 
 /**
@@ -14,7 +14,7 @@ export async function POST(
 
   let ctx;
   try {
-    ctx = await requireRole("agent");
+    ctx = await requireGranted("agent");
   } catch (err) {
     return toErrorResponse(err);
   }

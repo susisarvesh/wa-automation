@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireRole, toErrorResponse } from "@/lib/auth/account";
+import { requireRole, requireGranted, toErrorResponse } from "@/lib/auth/account";
 import { decrypt } from "@/lib/whatsapp/encryption";
 import {
   sendTemplateMessage,
@@ -18,7 +18,7 @@ import { humanizeMetaError } from "@/lib/whatsapp/meta-errors";
  */
 export async function POST(request: Request) {
   try {
-    const ctx = await requireRole("admin");
+    const ctx = await requireGranted("admin");
     const { supabase, accountId } = ctx;
 
     const body = (await request.json().catch(() => ({}))) as {

@@ -2,7 +2,7 @@
 // Server-side account context — for API routes and server
 // components.
 //
-//   AUTH_PROVIDER=google (default): real Google session, fixed workspace
+//   AUTH_PROVIDER=google: personal workspace + access_grants
 //   AUTH_PROVIDER=none: open demo with synthetic MVP session
 // ============================================================
 
@@ -11,18 +11,24 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
-import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
+import { hasMinRole, type AccountRole } from "./roles";
 import { ForbiddenError, UnauthorizedError } from "./errors";
-import { attachUserToWorkspace } from "./workspace";
+import { ensureUserWorkspace } from "./workspace";
+import {
+  isAccessApproved,
+  type AccessGrantRow,
+} from "./access-grants";
 import {
   DEFAULT_SINGLE_TENANT_USER_ID,
   getSingleTenantAccountId,
-  isGoogleAuthEnabled,
   isOpenDemoMode,
+  isPlatformAdmin,
   SINGLE_TENANT_EMAIL,
+  type AccessGrantStatus,
 } from "./single-tenant";
 
 export { UnauthorizedError, ForbiddenError } from "./errors";
+export type { AccessGrantStatus };
 
 export function toErrorResponse(err: unknown): NextResponse {
   if (err instanceof UnauthorizedError || err instanceof ForbiddenError) {
@@ -38,6 +44,9 @@ export interface AccountContext {
   accountId: string;
   role: AccountRole;
   account: { id: string; name: string };
+  accessStatus: AccessGrantStatus;
+  email: string | null;
+  isPlatformAdmin: boolean;
 }
 
 type OpenDemoBootstrap = {
@@ -97,9 +106,6 @@ async function ensureOpenDemoBootstrap(
         });
       }
 
-      // Prefer fixed SINGLE_TENANT_ACCOUNT_ID. If handle_new_user already
-      // created a personal account for this user (unique owner_user_id),
-      // reuse that workspace instead of failing the insert.
       let workspaceId = preferredAccountId;
       let accountName = "My Business";
 
@@ -121,10 +127,6 @@ async function ensureOpenDemoBootstrap(
         if (ownedByUser) {
           workspaceId = ownedByUser.id as string;
           accountName = (ownedByUser.name as string) || accountName;
-          console.warn(
-            "[open-demo] fixed account missing; reusing owner account",
-            workspaceId,
-          );
         } else {
           const { error: acctErr } = await admin.from("accounts").insert({
             id: preferredAccountId,
@@ -188,33 +190,6 @@ async function ensureOpenDemoBootstrap(
 }
 
 export async function getCurrentAccount(): Promise<AccountContext> {
-  // Google Auth: real session attached to the fixed workspace
-  if (isGoogleAuthEnabled()) {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabase.auth.getUser();
-    if (userErr || !user) {
-      throw new UnauthorizedError();
-    }
-
-    const admin = supabaseAdmin();
-    const { accountId, role, accountName } = await attachUserToWorkspace(
-      admin,
-      user,
-    );
-
-    return {
-      supabase,
-      userId: user.id,
-      accountId,
-      role,
-      account: { id: accountId, name: accountName },
-    };
-  }
-
-  // Open demo: service-role as synthetic owner
   if (isOpenDemoMode()) {
     const admin = supabaseAdmin();
     const { userId, accountId, accountName } = await ensureOpenDemoBootstrap(
@@ -227,10 +202,13 @@ export async function getCurrentAccount(): Promise<AccountContext> {
       accountId,
       role: "owner",
       account: { id: accountId, name: accountName },
+      accessStatus: "approved",
+      email: SINGLE_TENANT_EMAIL,
+      isPlatformAdmin: false,
     };
   }
 
-  // Fallback multi-tenant path (rare)
+  // Google (and any non-demo) path: personal workspace + grants
   const supabase = await createClient();
   const {
     data: { user },
@@ -240,39 +218,19 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     throw new UnauthorizedError();
   }
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("account_id, account_role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (error) {
-    console.error("[getCurrentAccount] profile fetch error:", error);
-    throw new ForbiddenError("Could not load account context");
-  }
-  if (!data || !data.account_id || !data.account_role) {
-    throw new ForbiddenError("Profile is not linked to an account");
-  }
-  if (!isAccountRole(data.account_role)) {
-    throw new ForbiddenError(`Unknown account role: ${data.account_role}`);
-  }
-
-  const { data: account, error: accountErr } = await supabase
-    .from("accounts")
-    .select("id, name")
-    .eq("id", data.account_id)
-    .maybeSingle();
-
-  if (accountErr || !account) {
-    throw new ForbiddenError("Could not load account context");
-  }
+  const admin = supabaseAdmin();
+  const { accountId, role, accountName, accessStatus } =
+    await ensureUserWorkspace(admin, user);
 
   return {
     supabase,
     userId: user.id,
-    accountId: data.account_id,
-    role: data.account_role,
-    account: { id: account.id, name: account.name },
+    accountId,
+    role,
+    account: { id: accountId, name: accountName },
+    accessStatus,
+    email: user.email ?? null,
+    isPlatformAdmin: isPlatformAdmin(user.email),
   };
 }
 
@@ -286,3 +244,30 @@ export async function requireRole(min: AccountRole): Promise<AccountContext> {
   }
   return ctx;
 }
+
+/**
+ * Require platform access grant (approved). Use for Connect / create
+ * automations / send / write APIs.
+ */
+export async function requireGranted(
+  min: AccountRole = "agent",
+): Promise<AccountContext> {
+  const ctx = await requireRole(min);
+  if (isOpenDemoMode()) return ctx;
+  if (!isAccessApproved(ctx.accessStatus)) {
+    throw new ForbiddenError(
+      "Your account is waiting for admin approval. You can browse what's available, but can't connect WhatsApp or create automations yet.",
+    );
+  }
+  return ctx;
+}
+
+export async function requirePlatformAdmin(): Promise<AccountContext> {
+  const ctx = await getCurrentAccount();
+  if (!ctx.isPlatformAdmin) {
+    throw new ForbiddenError("Platform admin only");
+  }
+  return ctx;
+}
+
+export type { AccessGrantRow };

@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
-import { attachUserToWorkspace } from "@/lib/auth/workspace";
-import { ForbiddenError } from "@/lib/auth/errors";
+import { ensureUserWorkspace } from "@/lib/auth/workspace";
 
 /**
- * Google OAuth callback — exchange code for session, attach user to
- * the fixed Vsmart workspace, then redirect into the app.
+ * Google OAuth callback — exchange code for session, ensure personal
+ * workspace + access_grants row (pending unless platform admin), then
+ * enter the app. Non-admin users are NOT signed out; they see the catalog
+ * until approved.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -46,17 +47,10 @@ export async function GET(request: Request) {
   }
 
   try {
-    await attachUserToWorkspace(supabaseAdmin(), data.user);
+    await ensureUserWorkspace(supabaseAdmin(), data.user);
   } catch (err) {
-    console.error("[auth/callback] workspace attach failed:", err);
-    await supabase.auth.signOut();
-    const msg =
-      err instanceof ForbiddenError
-        ? encodeURIComponent(err.message)
-        : "workspace";
-    return NextResponse.redirect(
-      new URL(`/login?error=${msg}`, url.origin),
-    );
+    console.error("[auth/callback] workspace ensure failed:", err);
+    // Still allow login — profile trigger may have created enough to browse
   }
 
   return NextResponse.redirect(new URL(safeNext, url.origin));

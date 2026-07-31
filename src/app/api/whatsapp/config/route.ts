@@ -7,7 +7,11 @@ import {
 } from '@/lib/whatsapp/meta-api'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { humanizeMetaError } from '@/lib/whatsapp/meta-errors'
-import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account'
+import {
+  getCurrentAccount,
+  requireGranted,
+  toErrorResponse,
+} from '@/lib/auth/account'
 
 // Lazy-initialised service-role client. We need it to detect a
 // phone_number_id already claimed by a *different* user — under RLS,
@@ -124,7 +128,7 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   try {
-    const ctx = await getCurrentAccount()
+    const ctx = await requireGranted('admin')
     const { supabase, accountId, userId } = ctx
     const user = { id: userId }
 
@@ -397,7 +401,7 @@ export async function POST(request: Request) {
  */
 export async function DELETE() {
   try {
-    const ctx = await getCurrentAccount()
+    const ctx = await requireGranted('admin')
     const { supabase, accountId } = ctx
 
     const { error: deleteError } = await supabase

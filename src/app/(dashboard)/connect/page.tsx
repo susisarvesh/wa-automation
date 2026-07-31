@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { humanizeMetaError } from '@/lib/whatsapp/meta-errors';
+import { AccessLockedPanel } from '@/components/auth/access-locked';
 
 type Step = 1 | 2 | 3;
 
@@ -44,7 +45,7 @@ type LiveStatus =
   | { state: 'offline'; message: string };
 
 export default function ConnectPage() {
-  const { accountId, loading: authLoading, profileLoading } = useAuth();
+  const { accountId, loading: authLoading, isAccessApproved } = useAuth();
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -150,13 +151,16 @@ export default function ConnectPage() {
   );
 
   useEffect(() => {
-    if (authLoading || profileLoading) return;
+    // Don't wait on profileLoading — that used to freeze Connect forever
+    // when the auth lock held the profile query. accountId is seeded from
+    // the fixed workspace id as soon as AuthProvider mounts.
+    if (authLoading) return;
     if (!accountId) {
       setLoading(false);
       return;
     }
     void load(accountId);
-  }, [accountId, authLoading, profileLoading, load]);
+  }, [accountId, authLoading, load]);
 
   async function saveAndConnect() {
     if (!accountId) return;
@@ -217,11 +221,20 @@ export default function ConnectPage() {
     toast.success('Webhook URL copied');
   }
 
-  if (loading || authLoading || profileLoading) {
+  if (loading || authLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
+    );
+  }
+
+  if (!isAccessApproved) {
+    return (
+      <AccessLockedPanel
+        title="Connect is locked"
+        description="Ask the admin to approve your access before linking a WhatsApp Business number."
+      />
     );
   }
 

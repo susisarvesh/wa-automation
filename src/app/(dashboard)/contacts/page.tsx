@@ -57,6 +57,8 @@ import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
+import { useAuth } from '@/hooks/use-auth';
+import { AccessLockedPanel } from '@/components/auth/access-locked';
 
 const PAGE_SIZE = 25;
 
@@ -67,6 +69,7 @@ interface ContactWithTags extends Contact {
 export default function ContactsPage() {
   const t = useTranslations('Contacts.page');
   const supabase = createClient();
+  const { isAccessApproved, loading: authLoading } = useAuth();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
 
@@ -130,83 +133,88 @@ export default function ContactsPage() {
     const to = from + PAGE_SIZE - 1;
     const term = search.trim();
 
-    let contactRows: Contact[];
-    let count: number;
+    try {
+      let contactRows: Contact[];
+      let count: number;
 
-    if (selectedTagIds.length > 0) {
-      // Tag filter active — resolve it server-side (join + distinct +
-      // windowed total count + pagination) so a tag covering many
-      // contacts can't silently truncate the result or overflow an IN
-      // clause. See migration 025_filter_contacts_by_tags.
-      const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
-        p_tag_ids: selectedTagIds,
-        p_search: term || null,
-        p_limit: PAGE_SIZE,
-        p_offset: from,
+      if (selectedTagIds.length > 0) {
+        // Tag filter active — resolve it server-side (join + distinct +
+        // windowed total count + pagination) so a tag covering many
+        // contacts can't silently truncate the result or overflow an IN
+        // clause. See migration 025_filter_contacts_by_tags.
+        const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
+          p_tag_ids: selectedTagIds,
+          p_search: term || null,
+          p_limit: PAGE_SIZE,
+          p_offset: from,
+        });
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+        if (error) {
+          toast.error(t('toastFailedLoad'));
+          return;
+        }
+        const rows = (data ?? []) as { contact: Contact; total_count: number }[];
+        contactRows = rows.map((r) => r.contact);
+        count = rows.length > 0 ? Number(rows[0].total_count) : 0;
+      } else {
+        let query = supabase
+          .from('contacts')
+          .select('*', { count: 'exact' })
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (term) {
+          const like = `%${term}%`;
+          query = query.or(
+            `name.ilike.${like},phone.ilike.${like},email.ilike.${like}`,
+          );
+        }
+
+        const { data, count: exactCount, error } = await query;
+        if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+        if (error) {
+          toast.error(t('toastFailedLoad'));
+          return;
+        }
+        contactRows = data ?? [];
+        count = exactCount ?? 0;
+      }
+
+      setTotalCount(count);
+
+      if (contactRows.length === 0) {
+        setContacts([]);
+        return;
+      }
+
+      // Fetch tags for these contacts
+      const contactIds = contactRows.map((c) => c.id);
+      const { data: contactTags } = await supabase
+        .from('contact_tags')
+        .select('contact_id, tag_id')
+        .in('contact_id', contactIds);
+      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+
+      const tagsByContact: Record<string, string[]> = {};
+      contactTags?.forEach((ct) => {
+        if (!tagsByContact[ct.contact_id]) tagsByContact[ct.contact_id] = [];
+        tagsByContact[ct.contact_id].push(ct.tag_id);
       });
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
-      }
-      const rows = (data ?? []) as { contact: Contact; total_count: number }[];
-      contactRows = rows.map((r) => r.contact);
-      count = rows.length > 0 ? Number(rows[0].total_count) : 0;
-    } else {
-      let query = supabase
-        .from('contacts')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .range(from, to);
 
-      if (term) {
-        const like = `%${term}%`;
-        query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
-      }
+      const enriched: ContactWithTags[] = contactRows.map((c) => ({
+        ...c,
+        tags: (tagsByContact[c.id] ?? [])
+          .map((tid) => tagsMap[tid])
+          .filter(Boolean),
+      }));
 
-      const { data, count: exactCount, error } = await query;
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
-      }
-      contactRows = data ?? [];
-      count = exactCount ?? 0;
+      setContacts(enriched);
+    } catch (err) {
+      console.warn('[Contacts] fetch failed:', err);
+      if (seq === fetchSeq.current) toast.error(t('toastFailedLoad'));
+    } finally {
+      if (seq === fetchSeq.current) setLoading(false);
     }
-
-    setTotalCount(count);
-
-    if (contactRows.length === 0) {
-      setContacts([]);
-      setLoading(false);
-      return;
-    }
-
-    // Fetch tags for these contacts
-    const contactIds = contactRows.map((c) => c.id);
-    const { data: contactTags } = await supabase
-      .from('contact_tags')
-      .select('contact_id, tag_id')
-      .in('contact_id', contactIds);
-    if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-
-    const tagsByContact: Record<string, string[]> = {};
-    contactTags?.forEach((ct) => {
-      if (!tagsByContact[ct.contact_id]) tagsByContact[ct.contact_id] = [];
-      tagsByContact[ct.contact_id].push(ct.tag_id);
-    });
-
-    const enriched: ContactWithTags[] = contactRows.map((c) => ({
-      ...c,
-      tags: (tagsByContact[c.id] ?? [])
-        .map((tid) => tagsMap[tid])
-        .filter(Boolean),
-    }));
-
-    setContacts(enriched);
-    setLoading(false);
   }, [supabase, page, search, selectedTagIds, tagsMap, t]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
@@ -337,6 +345,23 @@ export default function ContactsPage() {
   function clearTagFilters() {
     setSelectedTagIds([]);
     setPage(0);
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!isAccessApproved) {
+    return (
+      <AccessLockedPanel
+        title="Customers is locked"
+        description="Ask the admin to approve your access before managing contacts on your dashboard."
+      />
+    );
   }
 
   return (

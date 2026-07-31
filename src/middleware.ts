@@ -87,6 +87,7 @@ export async function middleware(request: NextRequest) {
     "/automations",
     "/settings",
     "/connect",
+    "/admin",
   ];
   if (
     !user &&

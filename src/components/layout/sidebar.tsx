@@ -13,6 +13,7 @@ import {
   MessageSquare,
   PlugZap,
   Settings,
+  Shield,
   Users,
   X,
   Zap,
@@ -39,7 +40,7 @@ interface SidebarProps {
 
 export function Sidebar({ open = false, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const { account, profile, signOut, user } = useAuth();
+  const { account, profile, signOut, user, isPlatformAdmin } = useAuth();
   const totalUnread = useTotalUnread();
   const canSignOut =
     (process.env.NEXT_PUBLIC_AUTH_PROVIDER || "google").toLowerCase() !==
@@ -161,6 +162,21 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             <Settings className="h-4 w-4" />
             Settings
           </Link>
+
+          {isPlatformAdmin ? (
+            <Link
+              href="/admin"
+              className={cn(
+                "mt-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                pathname.startsWith("/admin")
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <Shield className="h-4 w-4" />
+              Admin
+            </Link>
+          ) : null}
         </nav>
 
         <div className="shrink-0 space-y-2 border-t border-sidebar-border p-4">

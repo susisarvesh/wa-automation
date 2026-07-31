@@ -25,6 +25,7 @@ import {
 import { WhatsAppPreview } from '@/components/automations/whatsapp-preview'
 import { useAuth } from '@/hooks/use-auth'
 import { cn } from '@/lib/utils'
+import { AccessLockedPanel } from '@/components/auth/access-locked'
 
 function buildInitialAnswers(t: AutomationTemplateDefinition) {
   const init: Record<string, string> = {}
@@ -54,7 +55,7 @@ function buildInitialAnswers(t: AutomationTemplateDefinition) {
 export default function AutomationSetupPage() {
   const params = useParams<{ slug: string }>()
   const router = useRouter()
-  const { account } = useAuth()
+  const { account, isAccessApproved, loading: authLoading } = useAuth()
   const template = useMemo(() => getTemplate(params.slug), [params.slug])
   const [answers, setAnswers] = useState<Record<string, string>>(() => {
     const t = getTemplate(params.slug)
@@ -96,6 +97,23 @@ export default function AutomationSetupPage() {
           Back to library
         </Link>
       </div>
+    )
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  if (!isAccessApproved) {
+    return (
+      <AccessLockedPanel
+        title="Publishing is locked"
+        description="Browse the catalog on Automations. An admin must approve your access before you can publish."
+      />
     )
   }
 

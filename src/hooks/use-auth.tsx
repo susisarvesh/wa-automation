@@ -7,13 +7,17 @@ import {
   useMemo,
   useState,
   useCallback,
+  useRef,
   type ReactNode,
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_CURRENCY } from "@/lib/currency";
 import type { AccountRole } from "@/lib/auth/roles";
-import { getPublicSingleTenantAccountId } from "@/lib/auth/single-tenant";
+import {
+  getPublicSingleTenantAccountId,
+  type AccessGrantStatus,
+} from "@/lib/auth/single-tenant";
 
 interface Profile {
   id: string;
@@ -43,6 +47,9 @@ interface AuthContextValue {
   accountRole: AccountRole | null;
   account: AccountSummary | null;
   defaultCurrency: string;
+  accessStatus: AccessGrantStatus | null;
+  isAccessApproved: boolean;
+  isPlatformAdmin: boolean;
   isOwner: boolean;
   isAdmin: boolean;
   isAgent: boolean;
@@ -61,12 +68,16 @@ function isOpenDemoClient(): boolean {
   );
 }
 
-function syntheticOwner(accountId: string, accountName = "My Business") {
-  const account: AccountSummary = {
+function workspaceAccount(accountId: string, name = "My Business"): AccountSummary {
+  return {
     id: accountId,
-    name: accountName,
+    name,
     default_currency: DEFAULT_CURRENCY,
   };
+}
+
+function syntheticOwner(accountId: string, accountName = "My Business") {
+  const account = workspaceAccount(accountId, accountName);
   const profile: Profile = {
     id: accountId,
     full_name: "Business Owner",
@@ -92,6 +103,9 @@ function syntheticOwner(accountId: string, accountName = "My Business") {
     account,
     accountId,
     accountRole: "owner" as const,
+    accessStatus: "approved" as const,
+    isAccessApproved: true,
+    isPlatformAdmin: false,
     isOwner: true,
     isAdmin: false,
     isAgent: false,
@@ -119,22 +133,42 @@ function roleFlags(role: AccountRole | null) {
   };
 }
 
+function clientIsPlatformAdmin(email: string | undefined | null): boolean {
+  const raw =
+    process.env.NEXT_PUBLIC_PLATFORM_ADMIN_EMAILS ||
+    "vsmarttechindia@gmail.com";
+  if (!email) return false;
+  return raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(email.toLowerCase());
+}
+
 /**
  * AuthProvider — Google session (default) or open-demo MVP bootstrap.
+ * Never await profile fetches inside onAuthStateChange (holds auth lock).
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const fixedAccountId = getPublicSingleTenantAccountId();
+  const demoAccountId = getPublicSingleTenantAccountId();
   const openDemo = isOpenDemoClient();
 
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [accessStatus, setAccessStatus] = useState<AccessGrantStatus | null>(
+    openDemo ? "approved" : null,
+  );
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const profileReq = useRef(0);
 
-  const loadProfile = useCallback(
-    async (u: User) => {
+  const loadProfile = useCallback(async (u: User) => {
+    const req = ++profileReq.current;
+    setProfileLoading(true);
+    try {
       const supabase = createClient();
-      const { data: prof } = await supabase
+      const { data: prof, error: profErr } = await supabase
         .from("profiles")
         .select(
           "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
@@ -142,13 +176,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq("user_id", u.id)
         .maybeSingle();
 
-      if (!prof) {
+      if (req !== profileReq.current) return;
+
+      if (profErr) {
+        console.warn("[AuthProvider] profile:", profErr.message);
+      }
+
+      const { data: grant } = await supabase
+        .from("access_grants")
+        .select("status")
+        .eq("user_id", u.id)
+        .maybeSingle();
+
+      if (req !== profileReq.current) return;
+
+      if (grant?.status) {
+        setAccessStatus(grant.status as AccessGrantStatus);
+      } else if (clientIsPlatformAdmin(u.email)) {
+        setAccessStatus("approved");
+      } else {
+        setAccessStatus("pending");
+      }
+
+      if (!prof?.account_id) {
         setProfile(null);
-        setAccount({
-          id: fixedAccountId,
-          name: "My Business",
-          default_currency: DEFAULT_CURRENCY,
-        });
+        setAccount(null);
         return;
       }
 
@@ -159,37 +211,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         avatar_url: (prof.avatar_url as string) ?? null,
         role: (prof.role as string) ?? null,
         beta_features: (prof.beta_features as string[]) ?? [],
-        account_id: (prof.account_id as string) ?? fixedAccountId,
+        account_id: prof.account_id as string,
         account_role: (prof.account_role as AccountRole) ?? "owner",
       };
       setProfile(p);
 
-      const acctId = p.account_id ?? fixedAccountId;
       const { data: acct } = await supabase
         .from("accounts")
         .select("id, name, default_currency")
-        .eq("id", acctId)
+        .eq("id", p.account_id!)
         .maybeSingle();
 
+      if (req !== profileReq.current) return;
+
       setAccount({
-        id: acctId,
+        id: p.account_id!,
         name: (acct?.name as string) || "My Business",
         default_currency:
           (acct?.default_currency as string) || DEFAULT_CURRENCY,
       });
-    },
-    [fixedAccountId],
-  );
+    } catch (err) {
+      console.warn("[AuthProvider] loadProfile:", err);
+    } finally {
+      if (req === profileReq.current) setProfileLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
     const supabase = createClient();
 
-    (async () => {
-      try {
-        if (openDemo) {
-          // Clear a corrupted local session first — Brave / old cookies can
-          // leave setSession hanging and freeze the whole dashboard.
+    if (openDemo) {
+      (async () => {
+        try {
           await supabase.auth.signOut({ scope: "local" }).catch(() => {});
           const res = await fetch("/api/mvp/session");
           if (!res.ok) throw new Error("session bootstrap failed");
@@ -206,38 +260,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(data.user);
             await loadProfile(data.user);
           }
-        } else {
-          const {
-            data: { user: u },
-          } = await supabase.auth.getUser();
+        } catch (err) {
+          console.warn("[AuthProvider] bootstrap:", err);
           if (mounted) {
-            setUser(u);
-            if (u) await loadProfile(u);
+            const syn = syntheticOwner(demoAccountId);
+            setUser(syn.user);
+            setProfile(syn.profile);
+            setAccount(syn.account);
+            setAccessStatus("approved");
+            setProfileLoading(false);
           }
+        } finally {
+          if (mounted) setLoading(false);
         }
-      } catch (err) {
-        console.warn("[AuthProvider] bootstrap:", err);
-        if (openDemo && mounted) {
-          const syn = syntheticOwner(fixedAccountId);
-          setUser(syn.user);
-          setProfile(syn.profile);
-          setAccount(syn.account);
-        }
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
+      })();
+    }
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       const u = session?.user ?? null;
       setUser(u);
-      if (u) await loadProfile(u);
-      else {
+      if (!openDemo) setLoading(false);
+      if (u) {
+        void loadProfile(u);
+      } else {
         setProfile(null);
-        if (!openDemo) setAccount(null);
+        setAccount(null);
+        setAccessStatus(null);
+        setProfileLoading(false);
       }
     });
 
@@ -245,7 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [openDemo, fixedAccountId, loadProfile]);
+  }, [openDemo, demoAccountId, loadProfile]);
 
   const refreshProfile = useCallback(async () => {
     if (user) await loadProfile(user);
@@ -260,41 +312,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(() => {
     if (openDemo && !profile) {
-      const syn = syntheticOwner(fixedAccountId, account?.name);
+      const syn = syntheticOwner(demoAccountId, account?.name);
       return {
         ...syn,
         user: user ?? syn.user,
         account: account ?? syn.account,
         loading,
-        profileLoading: loading,
+        profileLoading: loading || profileLoading,
         signOut,
         refreshProfile,
       };
     }
 
-    const role = profile?.account_role ?? null;
+    const role = profile?.account_role ?? (user ? "owner" : null);
     const flags = roleFlags(role);
+    const approved = accessStatus === "approved" || openDemo;
+    const email = profile?.email || user?.email;
 
     return {
       user,
       profile,
       loading,
-      profileLoading: loading,
+      profileLoading,
       signOut,
       refreshProfile,
       accountId: account?.id ?? profile?.account_id ?? null,
       accountRole: role,
       account,
       defaultCurrency: account?.default_currency ?? DEFAULT_CURRENCY,
+      accessStatus,
+      isAccessApproved: approved,
+      isPlatformAdmin: clientIsPlatformAdmin(email),
       ...flags,
+      // Product writes also need grant — expose capability flags accordingly
+      canEditSettings: flags.canEditSettings && approved,
+      canSendMessages: flags.canSendMessages && approved,
     };
   }, [
     openDemo,
-    fixedAccountId,
+    demoAccountId,
     user,
     profile,
     account,
     loading,
+    profileLoading,
+    accessStatus,
     signOut,
     refreshProfile,
   ]);

@@ -12,13 +12,17 @@ import {
   TEMPLATE_LIBRARY_ORDER,
 } from '@/lib/automations/templates';
 import { cn } from '@/lib/utils';
+import { AccessWaitingBanner } from '@/components/auth/access-locked';
 
 export default function HomePage() {
-  const { accountId, account } = useAuth();
+  const { accountId, account, isAccessApproved } = useAuth();
   const [connected, setConnected] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (!accountId) return;
+    if (!accountId || !isAccessApproved) {
+      setConnected(false);
+      return;
+    }
     const supabase = createClient();
     supabase
       .from('whatsapp_config')
@@ -26,7 +30,7 @@ export default function HomePage() {
       .eq('account_id', accountId)
       .maybeSingle()
       .then(({ data }) => setConnected(Boolean(data?.phone_number_id)));
-  }, [accountId]);
+  }, [accountId, isAccessApproved]);
 
   const popular = TEMPLATE_LIBRARY_ORDER.slice(0, 3).map(
     (slug) => AUTOMATION_TEMPLATES[slug],
@@ -35,6 +39,7 @@ export default function HomePage() {
   return (
     <div className="vsmart-mesh -m-4 min-h-full space-y-8 p-4 sm:-m-6 sm:p-6">
       <section className="mx-auto max-w-3xl pt-2">
+        <AccessWaitingBanner />
         <div className="mb-6 flex items-center gap-3">
           <Image
             src="/brand/vsmart-mark.png"
@@ -56,8 +61,9 @@ export default function HomePage() {
           {account?.name ? `Hello, ${account.name}` : 'WhatsApp, simplified'}
         </h1>
         <p className="mt-3 max-w-xl text-base text-muted-foreground">
-          Connect your number, pick an automation, and start messaging customers.
-          Three steps — no clutter.
+          {isAccessApproved
+            ? 'Connect your number, pick an automation, and start messaging customers. Three steps — no clutter.'
+            : 'Browse what’s included below. Once an admin approves your access, you can connect WhatsApp and go live on your own dashboard.'}
         </p>
 
         <ol className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -77,85 +83,93 @@ export default function HomePage() {
         </ol>
       </section>
 
-      <section className="mx-auto max-w-3xl">
-        {connected === false && (
-          <div className="vsmart-shape border border-primary/20 bg-card p-6 shadow-sm sm:p-8">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-                <MessageSquare className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="font-heading text-xl font-semibold text-foreground">
-                  Connect WhatsApp
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Link your Business number so automations can send messages.
-                </p>
-                <Link
-                  href="/connect"
-                  className={cn(
-                    buttonVariants({ size: 'lg' }),
-                    'mt-5 rounded-xl bg-primary hover:bg-primary-hover',
-                  )}
-                >
-                  Connect now
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
+      {isAccessApproved ? (
+        <section className="mx-auto max-w-3xl">
+          {connected === false && (
+            <div className="vsmart-shape border border-primary/20 bg-card p-6 shadow-sm sm:p-8">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+                  <MessageSquare className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-heading text-xl font-semibold text-foreground">
+                    Connect WhatsApp
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Link your Business number so automations can send messages.
+                  </p>
+                  <Link
+                    href="/connect"
+                    className={cn(
+                      buttonVariants({ size: 'lg' }),
+                      'mt-5 rounded-xl bg-primary hover:bg-primary-hover',
+                    )}
+                  >
+                    Connect now
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {connected === true && (
-          <div className="vsmart-shape border border-border bg-card p-6 shadow-sm sm:p-8">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-orange-soft text-brand-orange">
-                <CheckCircle2 className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="font-heading text-xl font-semibold text-foreground">
-                  WhatsApp is connected
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Choose a ready-made automation and go live in a few minutes.
-                </p>
-                <Link
-                  href="/automations"
-                  className={cn(
-                    buttonVariants({ size: 'lg' }),
-                    'mt-5 rounded-xl bg-primary hover:bg-primary-hover',
-                  )}
-                >
-                  Browse automations
-                  <Zap className="ml-2 h-4 w-4" />
-                </Link>
+          {connected === true && (
+            <div className="vsmart-shape border border-border bg-card p-6 shadow-sm sm:p-8">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-orange-soft text-brand-orange">
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-heading text-xl font-semibold text-foreground">
+                    WhatsApp is connected
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Choose a ready-made automation and go live in a few minutes.
+                  </p>
+                  <Link
+                    href="/automations"
+                    className={cn(
+                      buttonVariants({ size: 'lg' }),
+                      'mt-5 rounded-xl bg-primary hover:bg-primary-hover',
+                    )}
+                  >
+                    Browse automations
+                    <Zap className="ml-2 h-4 w-4" />
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+      ) : null}
 
       <section className="mx-auto max-w-3xl space-y-3 pb-8">
         <h2 className="font-heading text-lg font-semibold text-foreground">
-          Popular automations
+          {isAccessApproved ? 'Popular automations' : 'What’s available'}
         </h2>
         <div className="grid gap-3 sm:grid-cols-3">
           {popular.map((t) => (
-            <Link
+            <div
               key={t.slug}
-              href={`/automations/setup/${t.slug}`}
-              className="vsmart-shape group border border-border bg-card p-4 shadow-sm transition hover:border-primary/40 hover:shadow-md"
+              className="vsmart-shape border border-border bg-card p-4 shadow-sm"
             >
-              <p className="text-sm font-semibold text-foreground group-hover:text-primary">
-                {t.name}
-              </p>
+              <p className="text-sm font-semibold text-foreground">{t.name}</p>
               <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                 {t.description}
               </p>
-              <p className="mt-3 text-xs font-medium text-brand-orange">
-                ~{t.estimatedMinutes} min · Set up
-              </p>
-            </Link>
+              {isAccessApproved ? (
+                <Link
+                  href={`/automations/setup/${t.slug}`}
+                  className="mt-3 inline-block text-xs font-medium text-brand-orange hover:underline"
+                >
+                  ~{t.estimatedMinutes} min · Set up
+                </Link>
+              ) : (
+                <p className="mt-3 text-xs font-medium text-muted-foreground">
+                  Included after approval
+                </p>
+              )}
+            </div>
           ))}
         </div>
       </section>

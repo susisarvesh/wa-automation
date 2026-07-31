@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireRole, toErrorResponse } from '@/lib/auth/account'
+import { requireRole, requireGranted, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import {
   loadStepsTree,
@@ -46,7 +46,7 @@ export async function PATCH(
 
   let ctx
   try {
-    ctx = await requireRole('agent')
+    ctx = await requireGranted('agent')
   } catch (err) {
     return toErrorResponse(err)
   }
@@ -125,7 +125,7 @@ export async function DELETE(
 
   let ctx
   try {
-    ctx = await requireRole('agent')
+    ctx = await requireGranted('agent')
   } catch (err) {
     return toErrorResponse(err)
   }

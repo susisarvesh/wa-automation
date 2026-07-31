@@ -27,6 +27,8 @@ import {
   type TemplateCategory,
 } from "@/lib/automations/templates"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/hooks/use-auth"
+import { AccessWaitingBanner } from "@/components/auth/access-locked"
 
 type AutomationStats = {
   runs: number
@@ -53,6 +55,7 @@ const emptyStats = (): AutomationStats => ({
 
 export default function AutomationsPage() {
   const router = useRouter()
+  const { isAccessApproved } = useAuth()
   const [automations, setAutomations] = useState<Automation[] | null>(null)
   const [stats, setStats] = useState<Record<string, AutomationStats>>({})
   const [statsLive, setStatsLive] = useState(false)
@@ -199,17 +202,19 @@ export default function AutomationsPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
+      <AccessWaitingBanner />
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
             Automations
           </p>
           <h1 className="font-heading text-3xl font-bold tracking-tight">
-            Pick a template
+            {isAccessApproved ? "Pick a template" : "What’s available"}
           </h1>
           <p className="max-w-2xl text-muted-foreground">
-            Preview the WhatsApp message, publish, then pause / edit / duplicate
-            without a builder.
+            {isAccessApproved
+              ? "Preview the WhatsApp message, publish, then pause / edit / duplicate without a builder."
+              : "Browse ready-made automations. After an admin approves you, you can publish them on your own dashboard."}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1 text-xs">
@@ -242,7 +247,7 @@ export default function AutomationsPage() {
         </div>
       </div>
 
-      {metaLive === false && (
+      {isAccessApproved && metaLive === false && (
         <div className="vsmart-shape flex flex-wrap items-center justify-between gap-3 border border-brand-orange/30 bg-brand-orange-soft px-4 py-3 text-sm">
           <p className="text-foreground">
             Connect WhatsApp to Meta so published automations can actually send.
@@ -256,7 +261,7 @@ export default function AutomationsPage() {
         </div>
       )}
 
-      {automations && automations.length > 0 && (
+      {isAccessApproved && automations && automations.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
             Your automations
@@ -392,7 +397,16 @@ export default function AutomationsPage() {
             <button
               key={t.slug}
               type="button"
-              onClick={() => router.push(`/automations/setup/${t.slug}`)}
+              onClick={() => {
+                if (!isAccessApproved) {
+                  toast.message("Waiting for admin approval", {
+                    description:
+                      "You can browse templates now. Publishing unlocks after access is granted.",
+                  })
+                  return
+                }
+                router.push(`/automations/setup/${t.slug}`)
+              }}
               className="vsmart-shape group flex flex-col border border-border bg-card p-5 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md"
             >
               <div className="mb-3 flex items-center justify-between">

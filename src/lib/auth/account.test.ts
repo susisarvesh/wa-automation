@@ -67,6 +67,7 @@ vi.mock("@/lib/supabase/server", () => ({
 const { getCurrentAccount, requireRole } = await import("./account");
 
 beforeEach(() => {
+  process.env.AUTH_PROVIDER = "none";
   process.env.SINGLE_TENANT_MODE = "true";
   process.env.SINGLE_TENANT_ACCOUNT_ID = ACCOUNT_ID;
   listUsers.mockResolvedValue({
