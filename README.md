@@ -41,6 +41,28 @@ with no login (single-tenant mode).
 
 Optional Docker setup: [docs/docker.md](./docs/docker.md).
 
+## Deploy on Vercel (frontend + API together)
+
+This is one Next.js app — UI and API routes deploy as a **single Vercel project**.
+
+1. Import [susisarvesh/wa-automation](https://github.com/susisarvesh/wa-automation) in the [Vercel dashboard](https://vercel.com/new) (or `npx vercel`).
+2. Copy env vars from `.env.local` into the Vercel project (Production).
+3. Set the same secret in both:
+   ```bash
+   AUTOMATION_CRON_SECRET=...
+   CRON_SECRET=...   # Vercel Cron sends Authorization: Bearer $CRON_SECRET
+   ```
+4. After deploy, set Meta webhook to `https://YOUR_APP.vercel.app/api/whatsapp/webhook`.
+
+Production (this project): **https://wa-automation-one.vercel.app**
+
+**CI/CD**
+- `.github/workflows/ci.yml` — lint / test / build on every push
+- `.github/workflows/deploy-vercel.yml` — production deploy on `main` (needs `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`)
+- `.github/workflows/keep-warm.yml` — pings `/api/cron/keepalive` every 10 minutes (needs `APP_URL` + `AUTOMATION_CRON_SECRET`) so the app stays warm on the free Hobby plan
+
+**Crons** (`vercel.json`): daily keepalive (Hobby allows 1/day). Frequent keep-warm is handled by GitHub Actions.
+
 ## Environment
 
 See [`.env.local.example`](./.env.local.example). Required:

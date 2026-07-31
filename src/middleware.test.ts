@@ -69,4 +69,16 @@ describe("middleware — Google auth", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("location")).toBeNull();
   });
+
+  it("allows cron keepalive without session", async () => {
+    process.env.AUTH_PROVIDER = "google";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
+
+    const res = await middleware(
+      new NextRequest("https://app.test/api/cron/keepalive"),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+  });
 });

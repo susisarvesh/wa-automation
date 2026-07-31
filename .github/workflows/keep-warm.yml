@@ -1,0 +1,27 @@
+# Free keep-warm: GitHub Actions pings the deployed app every 10 minutes
+# so serverless routes stay hot. Works on Vercel Hobby (Vercel Cron on
+# Hobby is limited to ~1/day).
+name: Keep warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: Ping keepalive
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm production
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.AUTOMATION_CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "Skip: set APP_URL and AUTOMATION_CRON_SECRET repo secrets"
+            exit 0
+          fi
+          curl -fsS -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL%/}/api/cron/keepalive"
+          echo
