@@ -384,6 +384,7 @@ export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'repli
 export interface Broadcast {
   id: string;
   user_id: string;
+  account_id?: string;
   name: string;
   template_name: string;
   template_language: string;
@@ -397,7 +398,10 @@ export interface Broadcast {
   read_count: number;
   replied_count: number;
   failed_count: number;
+  started_at?: string;
+  completed_at?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface BroadcastRecipient {

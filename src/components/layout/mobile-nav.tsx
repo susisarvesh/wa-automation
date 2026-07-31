@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Home,
+  Megaphone,
   MessageSquare,
-  PlugZap,
   Users,
   Zap,
 } from "lucide-react";
@@ -17,7 +17,7 @@ const items = [
   { href: "/automations", label: "Autos", icon: Zap },
   { href: "/inbox", label: "Inbox", icon: MessageSquare },
   { href: "/contacts", label: "People", icon: Users },
-  { href: "/connect", label: "Connect", icon: PlugZap },
+  { href: "/broadcasts", label: "Campaigns", icon: Megaphone },
 ] as const;
 
 export function MobileNav() {

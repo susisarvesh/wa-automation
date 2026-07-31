@@ -101,6 +101,7 @@ export async function middleware(request: NextRequest) {
     "/inbox",
     "/contacts",
     "/automations",
+    "/broadcasts",
     "/settings",
     "/connect",
     "/admin",

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { authorizeCron } from "@/lib/cron/auth";
 import { supabaseAdmin } from "@/lib/automations/admin-client";
 import { drainJobQueue } from "@/lib/jobs/drain";
+import { promoteScheduledBroadcasts } from "@/lib/broadcasts/send";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export async function GET(request: Request) {
   const started = Date.now();
   let dbOk = false;
   let pendingDue = 0;
+  let broadcastsPromoted = 0;
   let jobs = { processed: 0, failed: 0 };
 
   try {
@@ -49,7 +51,9 @@ export async function GET(request: Request) {
       }).catch(() => null);
     }
 
-    // Retry / catch-up for webhook.process jobs (idempotent).
+    broadcastsPromoted = await promoteScheduledBroadcasts(admin);
+
+    // Retry / catch-up for webhook + broadcast.send_batch jobs.
     jobs = await drainJobQueue(admin, 15);
   } catch (err) {
     console.error("[cron/keepalive]", err);
@@ -60,6 +64,7 @@ export async function GET(request: Request) {
     warm: true,
     db: dbOk,
     pending_due: pendingDue,
+    broadcasts_promoted: broadcastsPromoted,
     jobs,
     ms: Date.now() - started,
     at: new Date().toISOString(),

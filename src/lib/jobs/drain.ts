@@ -27,6 +27,15 @@ export async function drainJobQueue(
         await processWebhookJobPayload(
           job.payload as Parameters<typeof processWebhookJobPayload>[0],
         );
+      } else if (job.job_type === "broadcast.send_batch") {
+        const broadcastId = job.payload?.broadcastId;
+        if (typeof broadcastId !== "string" || !broadcastId) {
+          throw new Error("broadcast.send_batch missing broadcastId");
+        }
+        const { processBroadcastSendBatch } = await import(
+          "@/lib/broadcasts/send"
+        );
+        await processBroadcastSendBatch(admin, broadcastId);
       } else {
         log.warn("unknown job_type", { jobType: job.job_type, id: job.id });
       }

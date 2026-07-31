@@ -10,6 +10,7 @@ import { useTotalUnread } from "@/hooks/use-total-unread";
 import {
   Home,
   LogOut,
+  Megaphone,
   MessageSquare,
   PlugZap,
   Settings,
@@ -30,6 +31,7 @@ const navItems: NavItem[] = [
   { href: "/automations", label: "Automations", icon: Zap },
   { href: "/inbox", label: "Inbox", icon: MessageSquare },
   { href: "/contacts", label: "Customers", icon: Users },
+  { href: "/broadcasts", label: "Campaigns", icon: Megaphone },
   { href: "/connect", label: "Connect", icon: PlugZap },
 ];
 
