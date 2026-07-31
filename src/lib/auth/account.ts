@@ -1,7 +1,9 @@
 // ============================================================
 // Server-side account context — for API routes and server
-// components. In single-tenant MVP mode this always returns the
-// fixed workspace + service-role client (no login).
+// components.
+//
+//   AUTH_PROVIDER=google (default): real Google session, fixed workspace
+//   AUTH_PROVIDER=none: open demo with synthetic MVP session
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -10,28 +12,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/flows/admin-client";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
+import { ForbiddenError, UnauthorizedError } from "./errors";
+import { attachUserToWorkspace } from "./workspace";
 import {
   DEFAULT_SINGLE_TENANT_USER_ID,
   getSingleTenantAccountId,
-  isSingleTenantMode,
+  isGoogleAuthEnabled,
+  isOpenDemoMode,
   SINGLE_TENANT_EMAIL,
 } from "./single-tenant";
 
-export class UnauthorizedError extends Error {
-  readonly status = 401 as const;
-  constructor(message = "Unauthorized") {
-    super(message);
-    this.name = "UnauthorizedError";
-  }
-}
-
-export class ForbiddenError extends Error {
-  readonly status = 403 as const;
-  constructor(message = "Forbidden") {
-    super(message);
-    this.name = "ForbiddenError";
-  }
-}
+export { UnauthorizedError, ForbiddenError } from "./errors";
 
 export function toErrorResponse(err: unknown): NextResponse {
   if (err instanceof UnauthorizedError || err instanceof ForbiddenError) {
@@ -51,13 +42,12 @@ export interface AccountContext {
 
 let bootstrapPromise: Promise<void> | null = null;
 
-async function ensureSingleTenantBootstrap(
+async function ensureOpenDemoBootstrap(
   admin: SupabaseClient,
   accountId: string,
 ): Promise<{ userId: string; accountName: string }> {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
-      // Ensure a real auth.users row exists for FK columns (owner_user_id, etc.).
       const { data: listed } = await admin.auth.admin.listUsers({
         page: 1,
         perPage: 200,
@@ -86,7 +76,7 @@ async function ensureSingleTenantBootstrap(
           });
           if (retry.error || !retry.data.user) {
             console.error(
-              "[single-tenant] createUser failed:",
+              "[open-demo] createUser failed:",
               createErr ?? retry.error,
             );
             throw new ForbiddenError("Could not bootstrap workspace");
@@ -114,7 +104,7 @@ async function ensureSingleTenantBootstrap(
           owner_user_id: userId,
         });
         if (acctErr) {
-          console.error("[single-tenant] account insert failed:", acctErr);
+          console.error("[open-demo] account insert failed:", acctErr);
           throw new ForbiddenError("Could not bootstrap workspace");
         }
       }
@@ -143,7 +133,6 @@ async function ensureSingleTenantBootstrap(
           .eq("user_id", userId);
       }
 
-      // Seed a default tag for welcome automations.
       const { data: tag } = await admin
         .from("tags")
         .select("id")
@@ -183,10 +172,37 @@ async function ensureSingleTenantBootstrap(
 }
 
 export async function getCurrentAccount(): Promise<AccountContext> {
-  if (isSingleTenantMode()) {
+  // Google Auth: real session attached to the fixed workspace
+  if (isGoogleAuthEnabled()) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+    if (userErr || !user) {
+      throw new UnauthorizedError();
+    }
+
+    const admin = supabaseAdmin();
+    const { accountId, role, accountName } = await attachUserToWorkspace(
+      admin,
+      user,
+    );
+
+    return {
+      supabase,
+      userId: user.id,
+      accountId,
+      role,
+      account: { id: accountId, name: accountName },
+    };
+  }
+
+  // Open demo: service-role as synthetic owner
+  if (isOpenDemoMode()) {
     const accountId = getSingleTenantAccountId();
     const admin = supabaseAdmin();
-    const { userId, accountName } = await ensureSingleTenantBootstrap(
+    const { userId, accountName } = await ensureOpenDemoBootstrap(
       admin,
       accountId,
     );
@@ -199,8 +215,8 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     };
   }
 
+  // Fallback multi-tenant path (rare)
   const supabase = await createClient();
-
   const {
     data: { user },
     error: userErr,
@@ -232,12 +248,8 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     .eq("id", data.account_id)
     .maybeSingle();
 
-  if (accountErr) {
-    console.error("[getCurrentAccount] account fetch error:", accountErr);
+  if (accountErr || !account) {
     throw new ForbiddenError("Could not load account context");
-  }
-  if (!account) {
-    throw new ForbiddenError("Profile is not linked to an account");
   }
 
   return {
@@ -251,7 +263,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
 export async function requireRole(min: AccountRole): Promise<AccountContext> {
   const ctx = await getCurrentAccount();
-  if (isSingleTenantMode()) return ctx;
+  if (isOpenDemoMode()) return ctx;
   if (!hasMinRole(ctx.role, min)) {
     throw new ForbiddenError(
       `This action requires the '${min}' role or higher`,

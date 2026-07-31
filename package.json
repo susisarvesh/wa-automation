@@ -2,9 +2,9 @@
   "name": "wa-automation",
   "version": "0.1.0",
   "private": true,
-  "description": "Single-tenant WhatsApp Studio — connect Cloud API, run automations, and manage an inbox on Next.js + Supabase.",
+  "description": "Vsmart WhatsApp — simple single-tenant automation and inbox on Next.js + Supabase.",
   "license": "MIT",
-  "author": "Sarvesh",
+  "author": "Vsmart Technologies",
   "homepage": "https://github.com/susisarvesh/wa-automation",
   "repository": {
     "type": "git",

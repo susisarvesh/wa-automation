@@ -1,11 +1,11 @@
-# WhatsApp Studio
+# Vsmart WhatsApp
 
-Business-owner WhatsApp automation for a single workspace. Connect a
-WhatsApp Business number, pick ready-made automations, and reply from one
-inbox — no login UI, no team seats, no CRM clutter.
+Simple WhatsApp automation for [Vsmart Technologies](https://vsmarttec.com/).
+Connect a Business number, pick a ready-made automation, and reply from one
+inbox — single workspace, no login UI, no CRM clutter.
 
-Built on Next.js 16 and Supabase. Fork of an open-source WhatsApp CRM
-template, trimmed to a single-tenant MVP.
+Brand UI follows Vsmart’s site palette (blue `#3659c9`, orange `#f97316`)
+with **Syne** + **DM Sans**. Built on Next.js 16 and Supabase.
 
 ## What it includes
 

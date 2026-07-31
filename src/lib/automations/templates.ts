@@ -59,6 +59,13 @@ export interface AutomationTemplateDefinition {
   estimatedMinutes: number
   popularity: number
   preview: string
+  /** Richer phone preview — reply buttons customers would tap. */
+  previewButtons?: string[]
+  /** List-row titles for list-style interactive previews. */
+  previewListRows?: string[]
+  previewHeader?: string
+  previewFooter?: string
+  previewKind?: 'text' | 'buttons' | 'list' | 'template'
   trigger_type: AutomationTriggerType
   trigger_config: AutomationTriggerConfig
   steps: TemplateStepSeed[]
@@ -159,6 +166,9 @@ export const AUTOMATION_TEMPLATES: Record<
     estimatedMinutes: 3,
     popularity: 91,
     preview: 'Happy to help with pricing! Quick question…',
+    previewKind: 'buttons',
+    previewButtons: ['This week', 'This month', 'Just exploring'],
+    previewFooter: 'Tap an option — or type a reply',
     trigger_type: 'keyword_match',
     trigger_config: {
       keywords: ['pricing', 'quote', 'buy', 'cost'],
@@ -197,6 +207,9 @@ export const AUTOMATION_TEMPLATES: Record<
     category: 'Reminders',
     estimatedMinutes: 2,
     popularity: 88,
+    previewKind: 'buttons',
+    previewButtons: ['Confirm', 'Reschedule'],
+    previewHeader: 'Appointment',
     preview: 'Just a reminder about your upcoming appointment…',
     trigger_type: 'keyword_match',
     trigger_config: {
@@ -338,6 +351,9 @@ export const AUTOMATION_TEMPLATES: Record<
     estimatedMinutes: 2,
     popularity: 77,
     preview: 'How did we do? Reply with 1–5 stars.',
+    previewKind: 'buttons',
+    previewButtons: ['⭐ 5', '⭐ 4', '⭐ 3'],
+    previewFooter: 'Your rating helps us improve',
     trigger_type: 'new_message_received',
     trigger_config: {},
     questions: [

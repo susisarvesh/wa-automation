@@ -6,6 +6,7 @@ import {
   verifyPhoneNumber,
 } from '@/lib/whatsapp/meta-api'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { humanizeMetaError } from '@/lib/whatsapp/meta-errors'
 import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account'
 
 // Lazy-initialised service-role client. We need it to detect a
@@ -100,7 +101,8 @@ export async function GET() {
         {
           connected: false,
           reason: 'meta_api_error',
-          message: `Meta API rejected the credentials: ${message}`,
+          message: humanizeMetaError(message),
+          detail: message,
         },
         { status: 200 }
       )
@@ -193,8 +195,11 @@ export async function POST(request: Request) {
         const message = err instanceof Error ? err.message : 'Unknown Meta API error'
         console.error('Meta API verification failed during save:', message)
         return NextResponse.json(
-          { error: `Could not verify your WhatsApp connection: ${message}` },
-          { status: 400 }
+          {
+            error: humanizeMetaError(message),
+            detail: message,
+          },
+          { status: 400 },
         )
       }
     } else {

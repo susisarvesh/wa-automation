@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { NextIntlClientProvider } from 'next-intl';
-import { getLocale, getMessages } from 'next-intl/server';
-import { Inter } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
+import { DM_Sans, Syne } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/hooks/use-theme";
@@ -15,23 +15,31 @@ import {
   THEME_IDS,
 } from "@/lib/themes";
 
-const inter = Inter({
+const dmSans = DM_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+const syne = Syne({
+  variable: "--font-heading",
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
   title: {
-    default: "wacrm",
-    template: "%s — wacrm",
+    default: "Vsmart WhatsApp",
+    template: "%s — Vsmart",
   },
-  description: "Self-hostable CRM template for WhatsApp.",
+  description:
+    "Simple WhatsApp automation for your business — by Vsmart Technologies.",
   robots: {
     index: false,
     follow: false,
   },
   icons: {
-    icon: [{ url: "/icon" }],
+    icon: [{ url: "/brand/vsmart-mark.png" }],
   },
   formatDetection: {
     email: false,
@@ -41,20 +49,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#020617",
-  colorScheme: "dark light",
+  themeColor: "#3659c9",
+  colorScheme: "light dark",
 };
 
-// Inline boot script — runs before React hydrates so the user's
-// chosen accent (data-theme) AND mode (data-mode) are on the <html>
-// element before first paint. Without this every page load flashes
-// the server-rendered defaults for a frame before the React tree
-// mounts and applies the picked values.
-//
-// Kept dependency-free (no imports, no JSX) — must be a string the
-// browser can run as a single <script>. Knowledge of valid ids is
-// sourced from the THEME_IDS / MODES constants so adding one doesn't
-// silently break the boot path.
 const THEME_BOOT_SCRIPT = `
 (function(){
   var d = document.documentElement;
@@ -90,14 +88,7 @@ export default async function RootLayout({
       lang={locale}
       data-theme={DEFAULT_THEME}
       data-mode={DEFAULT_MODE}
-      className={`${inter.variable} h-full antialiased`}
-      // The `theme-boot` script below rewrites `data-theme` and
-      // `data-mode` on <html> from localStorage before React hydrates,
-      // so for any non-default choice the client DOM intentionally
-      // differs from the server-rendered defaults. suppressHydration-
-      // Warning silences the expected mismatch — it only applies to
-      // this element's own attributes, so genuine mismatches in
-      // children still surface.
+      className={`${dmSans.variable} ${syne.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
@@ -107,7 +98,7 @@ export default async function RootLayout({
           dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }}
         />
       </head>
-      <body className="min-h-full bg-background text-foreground font-sans">
+      <body className="min-h-full bg-background font-sans text-foreground">
         <NextIntlClientProvider messages={messages} locale={locale}>
           <ThemeProvider>
             {children}

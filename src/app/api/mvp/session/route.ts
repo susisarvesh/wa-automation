@@ -1,14 +1,24 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
-import { SINGLE_TENANT_EMAIL } from "@/lib/auth/single-tenant";
+import {
+  isOpenDemoMode,
+  SINGLE_TENANT_EMAIL,
+} from "@/lib/auth/single-tenant";
 
 /**
- * Issues a Supabase session for the single-tenant MVP user so the
- * browser anon client can pass RLS (is_account_member) without a
- * login screen. Not production-safe.
+ * Issues a Supabase session for the open-demo MVP user so the
+ * browser anon client can pass RLS without a login screen.
+ * Disabled when AUTH_PROVIDER=google.
  */
 export async function GET() {
+  if (!isOpenDemoMode()) {
+    return NextResponse.json(
+      { error: "Open demo session is disabled. Sign in with Google." },
+      { status: 403 },
+    );
+  }
+
   try {
     await getCurrentAccount(); // ensures user + account exist
 

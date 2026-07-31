@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Exercise the multi-tenant auth path so these unit tests can mock
-// createClient + role checks. Single-tenant MVP mode short-circuits that.
+// createClient + role checks. Open-demo / Google ST modes short-circuit that.
 process.env.SINGLE_TENANT_MODE = 'false'
+process.env.AUTH_PROVIDER = 'google'
+process.env.NEXT_PUBLIC_AUTH_PROVIDER = 'google'
 
 // ---------------------------------------------------------------------------
 // Tests for the `contact_id` send path (issue #296): sending an approved

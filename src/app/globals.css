@@ -8,8 +8,8 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
+  --font-heading: var(--font-heading);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -39,15 +39,12 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  /* Secondary card surface (tile / hover backgrounds) and the accent
-   * extras the Settings redesign leans on. The raw --primary-* vars
-   * already exist per-accent below; these mappings expose them (and
-   * --card-2) as Tailwind utilities: bg-card-2, bg-primary-soft,
-   * bg-primary-soft-2, hover:bg-primary-hover. */
   --color-card-2: var(--card-2);
   --color-primary-hover: var(--primary-hover);
   --color-primary-soft: var(--primary-soft);
   --color-primary-soft-2: var(--primary-soft-2);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-orange-soft: var(--brand-orange-soft);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -57,164 +54,101 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* ============================================================
- * THEMING — two orthogonal dimensions
- *
- *   1. MODE   (light / dark)  → neutral surfaces. Selected with
- *      `document.documentElement.dataset.mode`. Defaults to dark.
- *   2. ACCENT (violet / …)    → the primary color only. Selected
- *      with `document.documentElement.dataset.theme`.
- *
- * The two compose: any accent works in either mode. Neutral
- * tokens (background / card / border / muted / sidebar surfaces /
- * neutral charts / radius) live in the MODE blocks below; accent
- * tokens (--primary*, --ring, --chart-1, --sidebar-primary*,
- * --sidebar-ring) live in the ACCENT blocks. They set disjoint
- * variables, so cascade order between them doesn't matter.
- *
- * `:root` carries the dark-mode + violet defaults so a visitor
- * renders correctly before JS runs; the boot script in
- * layout.tsx replays the saved mode + accent before first paint.
- *
- * The three `--primary-*` extras (hover / soft / soft-2) feed
- * hovered primary buttons and tinted-primary surfaces (sidebar
- * active pill, validation badges).
- *
- * Token shapes come straight from the design handoff at
- * project/Color Themes.html — change one, change the other.
- * ============================================================ */
-
-/* ---- MODE: neutral surfaces ---- */
+/*
+ * Vsmart Technologies brand tokens
+ * Primary blue #3659c9 · Accent orange #f97316 · Cool light canvas #f7f8fc
+ * Fonts: Syne (headings) + DM Sans (body) — same as vsmarttec.com
+ */
 
 :root,
+html[data-mode="light"],
+html[data-theme="vsmart"] {
+  --background: #f7f8fc;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-2: #f5f7fc;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+  --secondary: #eef1f8;
+  --secondary-foreground: #1f2937;
+  --muted: #eef1f8;
+  --muted-foreground: #6b7280;
+  --accent: #eef1f8;
+  --accent-foreground: #1f2937;
+  --destructive: #dc2626;
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --radius: 0.75rem;
+
+  --primary: #3659c9;
+  --primary-foreground: #ffffff;
+  --primary-hover: #2d4bb0;
+  --primary-soft: #3659c90d;
+  --primary-soft-2: #3659c926;
+  --ring: #3659c9;
+
+  --brand-orange: #f97316;
+  --brand-orange-soft: #fff4eb;
+
+  --chart-1: #3659c9;
+  --chart-2: #f97316;
+  --chart-3: #3498db;
+  --chart-4: #9ca3af;
+  --chart-5: #e5e7eb;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #111827;
+  --sidebar-primary: #3659c9;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #3659c90d;
+  --sidebar-accent-foreground: #2a48a8;
+  --sidebar-border: #e5e7eb;
+  --sidebar-ring: #3659c9;
+}
+
 html[data-mode="dark"] {
-  --background: oklch(0.13 0.01 260);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.18 0.01 260);
-  --card-2: oklch(0.205 0.01 260);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.18 0.01 260);
-  --popover-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.22 0.01 260);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.22 0.01 260);
-  --muted-foreground: oklch(0.65 0.01 260);
-  --accent: oklch(0.22 0.01 260);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.28 0.01 260);
-  --input: oklch(0.28 0.01 260);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.16 0.01 260);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.22 0.01 260);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.28 0.01 260);
-}
+  --background: #0b1224;
+  --foreground: #f3f4f6;
+  --card: #121a2f;
+  --card-2: #182238;
+  --card-foreground: #f3f4f6;
+  --popover: #121a2f;
+  --popover-foreground: #f3f4f6;
+  --secondary: #1a243c;
+  --secondary-foreground: #f3f4f6;
+  --muted: #1a243c;
+  --muted-foreground: #9ca3af;
+  --accent: #1a243c;
+  --accent-foreground: #f3f4f6;
+  --destructive: #ef4444;
+  --border: #243049;
+  --input: #243049;
 
-html[data-mode="light"] {
-  --background: oklch(0.99 0.002 260);
-  --foreground: oklch(0.21 0.01 260);
-  --card: oklch(1 0 0);
-  --card-2: oklch(0.985 0.002 260);
-  --card-foreground: oklch(0.21 0.01 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.01 260);
-  --secondary: oklch(0.967 0.003 260);
-  --secondary-foreground: oklch(0.25 0.01 260);
-  --muted: oklch(0.967 0.003 260);
-  --muted-foreground: oklch(0.52 0.015 260);
-  --accent: oklch(0.96 0.004 260);
-  --accent-foreground: oklch(0.25 0.01 260);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0.004 260);
-  --input: oklch(0.922 0.004 260);
-  --chart-2: oklch(0.6 0.1 260);
-  --chart-3: oklch(0.7 0.06 260);
-  --chart-4: oklch(0.8 0.04 260);
-  --chart-5: oklch(0.87 0.03 260);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0.002 260);
-  --sidebar-foreground: oklch(0.21 0.01 260);
-  --sidebar-accent: oklch(0.96 0.004 260);
-  --sidebar-accent-foreground: oklch(0.25 0.01 260);
-  --sidebar-border: oklch(0.922 0.004 260);
-}
+  --primary: #5b7ef0;
+  --primary-foreground: #ffffff;
+  --primary-hover: #7b95f5;
+  --primary-soft: #3659c933;
+  --primary-soft-2: #3659c94d;
+  --ring: #5b7ef0;
 
-/* ---- ACCENT: primary color ---- */
+  --brand-orange: #fb923c;
+  --brand-orange-soft: #431407;
 
-:root,
-html[data-theme="violet"] {
-  --primary: oklch(0.526 0.247 293);
-  --primary-foreground: oklch(0.985 0 0);
-  --primary-hover: oklch(0.6 0.22 293);
-  --primary-soft: oklch(0.526 0.247 293 / 0.12);
-  --primary-soft-2: oklch(0.526 0.247 293 / 0.2);
-  --ring: oklch(0.526 0.247 293);
-  --chart-1: oklch(0.526 0.247 293);
-  --sidebar-primary: oklch(0.526 0.247 293);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-ring: oklch(0.526 0.247 293);
-}
+  --chart-1: #5b7ef0;
+  --chart-2: #fb923c;
+  --chart-3: #3498db;
+  --chart-4: #6b7280;
+  --chart-5: #243049;
 
-html[data-theme="emerald"] {
-  --primary: oklch(0.62 0.16 162);
-  --primary-foreground: oklch(0.16 0.02 162);
-  --primary-hover: oklch(0.68 0.15 162);
-  --primary-soft: oklch(0.62 0.16 162 / 0.12);
-  --primary-soft-2: oklch(0.62 0.16 162 / 0.22);
-  --ring: oklch(0.62 0.16 162);
-  --chart-1: oklch(0.62 0.16 162);
-  --chart-2: oklch(0.7 0.14 195);
-  --sidebar-primary: oklch(0.62 0.16 162);
-  --sidebar-primary-foreground: oklch(0.16 0.02 162);
-  --sidebar-ring: oklch(0.62 0.16 162);
-}
-
-html[data-theme="cobalt"] {
-  --primary: oklch(0.585 0.2 254);
-  --primary-foreground: oklch(0.985 0 0);
-  --primary-hover: oklch(0.66 0.18 254);
-  --primary-soft: oklch(0.585 0.2 254 / 0.12);
-  --primary-soft-2: oklch(0.585 0.2 254 / 0.22);
-  --ring: oklch(0.585 0.2 254);
-  --chart-1: oklch(0.585 0.2 254);
-  --chart-2: oklch(0.7 0.15 220);
-  --sidebar-primary: oklch(0.585 0.2 254);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-ring: oklch(0.585 0.2 254);
-}
-
-html[data-theme="amber"] {
-  --primary: oklch(0.745 0.16 65);
-  --primary-foreground: oklch(0.18 0.03 65);
-  --primary-hover: oklch(0.8 0.15 65);
-  --primary-soft: oklch(0.745 0.16 65 / 0.12);
-  --primary-soft-2: oklch(0.745 0.16 65 / 0.22);
-  --ring: oklch(0.745 0.16 65);
-  --chart-1: oklch(0.745 0.16 65);
-  --chart-2: oklch(0.7 0.15 35);
-  --sidebar-primary: oklch(0.745 0.16 65);
-  --sidebar-primary-foreground: oklch(0.18 0.03 65);
-  --sidebar-ring: oklch(0.745 0.16 65);
-}
-
-html[data-theme="rose"] {
-  --primary: oklch(0.645 0.22 16);
-  --primary-foreground: oklch(0.985 0 0);
-  --primary-hover: oklch(0.71 0.2 16);
-  --primary-soft: oklch(0.645 0.22 16 / 0.12);
-  --primary-soft-2: oklch(0.645 0.22 16 / 0.22);
-  --ring: oklch(0.645 0.22 16);
-  --chart-1: oklch(0.645 0.22 16);
-  --chart-2: oklch(0.7 0.18 340);
-  --sidebar-primary: oklch(0.645 0.22 16);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-ring: oklch(0.645 0.22 16);
+  --sidebar: #0f172a;
+  --sidebar-foreground: #f3f4f6;
+  --sidebar-primary: #5b7ef0;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #3659c933;
+  --sidebar-accent-foreground: #bfdbfe;
+  --sidebar-border: #243049;
+  --sidebar-ring: #5b7ef0;
 }
 
 @layer base {
@@ -222,9 +156,33 @@ html[data-theme="rose"] {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
   }
-  html {
-    @apply font-sans;
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-heading {
+    font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+    letter-spacing: -0.02em;
   }
+}
+
+/* Brand shape: rounded top-right + bottom-left (logo motif) */
+.vsmart-shape {
+  border-radius: 0.25rem 1.25rem 0.25rem 1.25rem;
+}
+
+.vsmart-mesh {
+  background-image:
+    radial-gradient(ellipse 80% 60% at 10% -10%, #3659c91a, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 100% 0%, #f9731614, transparent 50%),
+    linear-gradient(180deg, #f7f8fc 0%, #eef1f8 100%);
+}
+
+html[data-mode="dark"] .vsmart-mesh {
+  background-image:
+    radial-gradient(ellipse 80% 60% at 10% -10%, #3659c940, transparent 55%),
+    radial-gradient(ellipse 60% 50% at 100% 0%, #f9731626, transparent 50%),
+    linear-gradient(180deg, #0b1224 0%, #121a2f 100%);
 }

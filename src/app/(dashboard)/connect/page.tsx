@@ -1,13 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   ArrowRight,
   CheckCircle2,
+  Copy,
   Loader2,
   MessageSquare,
+  RefreshCw,
+  Send,
   ShieldCheck,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -15,10 +18,30 @@ import { useAuth } from '@/hooks/use-auth';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { humanizeMetaError } from '@/lib/whatsapp/meta-errors';
 
 type Step = 1 | 2 | 3;
+
+type PhoneInfo = {
+  display_phone_number?: string;
+  verified_name?: string;
+  quality_rating?: string;
+  id?: string;
+};
+
+type LiveStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'live'; phone: PhoneInfo }
+  | { state: 'offline'; message: string };
 
 export default function ConnectPage() {
   const { accountId, loading: authLoading, profileLoading } = useAuth();
@@ -26,29 +49,97 @@ export default function ConnectPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [alreadyConnected, setAlreadyConnected] = useState(false);
+  const [live, setLive] = useState<LiveStatus>({ state: 'idle' });
 
   const [businessNumber, setBusinessNumber] = useState('');
   const [businessAccount, setBusinessAccount] = useState('');
   const [connectionCode, setConnectionCode] = useState('');
   const [verifyPhrase, setVerifyPhrase] = useState('');
+  const [pin, setPin] = useState('');
+  const [testTo, setTestTo] = useState('');
+  const [testSending, setTestSending] = useState(false);
+  const [lastTestOk, setLastTestOk] = useState<string | null>(null);
 
-  const load = useCallback(async (acctId: string) => {
-    setLoading(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, waba_id, verify_token')
-      .eq('account_id', acctId)
-      .maybeSingle();
-    if (data?.phone_number_id) {
-      setBusinessNumber(data.phone_number_id);
-      setBusinessAccount(data.waba_id ?? '');
-      setVerifyPhrase(data.verify_token ?? '');
-      setAlreadyConnected(true);
-      setStep(3);
-    }
-    setLoading(false);
+  const webhookUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return `${window.location.origin}/api/whatsapp/webhook`;
   }, []);
+
+  const testMetaLive = useCallback(async () => {
+    setLive({ state: 'checking' });
+    try {
+      const res = await fetch('/api/whatsapp/config', { cache: 'no-store' });
+      const body = await res.json().catch(() => ({}));
+      if (body.connected && body.phone_info) {
+        setLive({ state: 'live', phone: body.phone_info as PhoneInfo });
+        setAlreadyConnected(true);
+        return true;
+      }
+      setLive({
+        state: 'offline',
+        message: humanizeMetaError(
+          body.message ?? 'Meta did not accept the saved credentials.',
+        ),
+      });
+      return false;
+    } catch {
+      setLive({
+        state: 'offline',
+        message: 'Could not reach the server to verify Meta.',
+      });
+      return false;
+    }
+  }, []);
+
+  async function sendTestMessage() {
+    if (!testTo.trim()) {
+      toast.error('Enter a recipient phone in international format (+91…)');
+      return;
+    }
+    setTestSending(true);
+    setLastTestOk(null);
+    try {
+      const res = await fetch('/api/whatsapp/test-send', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ to: testTo.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          humanizeMetaError(body.error ?? 'Could not send test message'),
+        );
+      }
+      setLastTestOk(body.message_id as string);
+      toast.success('Test message sent via Meta — check the phone');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Send failed');
+    } finally {
+      setTestSending(false);
+    }
+  }
+
+  const load = useCallback(
+    async (acctId: string) => {
+      setLoading(true);
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('whatsapp_config')
+        .select('phone_number_id, waba_id, verify_token')
+        .eq('account_id', acctId)
+        .maybeSingle();
+      if (data?.phone_number_id) {
+        setBusinessNumber(data.phone_number_id);
+        setBusinessAccount(data.waba_id ?? '');
+        setVerifyPhrase('');
+        setAlreadyConnected(true);
+        setStep(3);
+        await testMetaLive();
+      }
+      setLoading(false);
+    },
+    [testMetaLive],
+  );
 
   useEffect(() => {
     if (authLoading || profileLoading || !accountId) return;
@@ -58,7 +149,7 @@ export default function ConnectPage() {
   async function saveAndConnect() {
     if (!accountId) return;
     if (!businessNumber.trim() || !connectionCode.trim() || !verifyPhrase.trim()) {
-      toast.error('Please fill in all fields');
+      toast.error('Please fill in Business number ID, Connection code, and Secret phrase');
       return;
     }
     setSaving(true);
@@ -71,20 +162,47 @@ export default function ConnectPage() {
           waba_id: businessAccount.trim() || undefined,
           access_token: connectionCode.trim(),
           verify_token: verifyPhrase.trim(),
+          pin: pin.trim() || undefined,
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.error ?? 'Could not connect');
+        throw new Error(body.error ?? 'Could not connect to Meta');
       }
-      setAlreadyConnected(true);
-      setStep(3);
-      toast.success('WhatsApp connected');
+
+      // Always re-check live against Meta Graph API (not just "saved").
+      const ok = await testMetaLive();
+      if (ok) {
+        setAlreadyConnected(true);
+        setStep(3);
+        toast.success(
+          body.phone_info?.verified_name
+            ? `Connected to Meta as ${body.phone_info.verified_name}`
+            : 'Connected to Meta',
+        );
+      } else if (body.saved) {
+        setStep(3);
+        toast.warning(
+          body.registration_error
+            ? `Saved, but Meta registration needs attention: ${body.registration_error}`
+            : 'Saved, but Meta is not live yet — check credentials.',
+        );
+      }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not connect');
+      toast.error(
+        humanizeMetaError(
+          err instanceof Error ? err.message : 'Could not connect',
+        ),
+      );
     } finally {
       setSaving(false);
     }
+  }
+
+  async function copyWebhook() {
+    if (!webhookUrl) return;
+    await navigator.clipboard.writeText(webhookUrl);
+    toast.success('Webhook URL copied');
   }
 
   if (loading || authLoading || profileLoading) {
@@ -98,12 +216,15 @@ export default function ConnectPage() {
   return (
     <div className="mx-auto max-w-xl space-y-8">
       <div className="space-y-2 text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        <div className="vsmart-shape mx-auto flex h-12 w-12 items-center justify-center bg-primary text-primary-foreground">
           <MessageSquare className="h-6 w-6" />
         </div>
-        <h1 className="text-3xl font-bold tracking-tight">Connect WhatsApp</h1>
+        <h1 className="font-heading text-3xl font-bold tracking-tight">
+          Connect WhatsApp
+        </h1>
         <p className="text-muted-foreground">
-          Three simple steps. You only need the details from your WhatsApp Business account.
+          We verify your Cloud API credentials with Meta in real time before
+          automations can send.
         </p>
       </div>
 
@@ -126,20 +247,47 @@ export default function ConnectPage() {
       </ol>
 
       {step === 1 && (
-        <Card className="rounded-3xl border-border/80 shadow-sm">
+        <Card className="vsmart-shape border-border shadow-sm">
           <CardHeader>
-            <CardTitle>Ready to connect?</CardTitle>
+            <CardTitle className="font-heading">Ready to connect Meta?</CardTitle>
             <CardDescription>
-              We will link your WhatsApp Business number so automations can reply for you.
+              You need a WhatsApp Cloud API phone number ID, permanent access
+              token, and a verify token for the webhook.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2 rounded-xl bg-muted/60 p-3 text-sm">
+              <p className="font-medium text-foreground">Webhook URL (Meta → App)</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 truncate rounded-lg bg-card px-2 py-1.5 text-xs">
+                  {webhookUrl || '/api/whatsapp/webhook'}
+                </code>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={copyWebhook}
+                  className="shrink-0"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Paste this in Meta Developer → WhatsApp → Configuration →
+                Callback URL. Use the same secret phrase as Verify token.
+              </p>
+            </div>
             <div className="flex items-start gap-3 rounded-2xl bg-primary/5 p-4 text-sm text-muted-foreground">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              Your connection details stay private to this workspace.
+              Credentials are encrypted at rest. We call Meta Graph API to
+              confirm the number before marking you connected.
             </div>
-            <Button size="lg" className="w-full rounded-xl" onClick={() => setStep(2)}>
-              Connect WhatsApp
+            <Button
+              size="lg"
+              className="w-full rounded-xl"
+              onClick={() => setStep(2)}
+            >
+              Enter Meta credentials
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </CardContent>
@@ -147,53 +295,68 @@ export default function ConnectPage() {
       )}
 
       {step === 2 && (
-        <Card className="rounded-3xl border-border/80 shadow-sm">
+        <Card className="vsmart-shape border-border shadow-sm">
           <CardHeader>
-            <CardTitle>Enter your business details</CardTitle>
+            <CardTitle className="font-heading">Meta Cloud API details</CardTitle>
             <CardDescription>
-              Paste the values from your WhatsApp Business setup. We use plain language — no jargon.
+              From Meta Developer Console → WhatsApp → API Setup.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="business-number">Business number ID</Label>
+              <Label htmlFor="business-number">Phone number ID</Label>
               <Input
                 id="business-number"
                 value={businessNumber}
                 onChange={(e) => setBusinessNumber(e.target.value)}
-                placeholder="Your WhatsApp business number ID"
+                placeholder="e.g. 109876543210987"
+                autoComplete="off"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="business-account">Business account ID (optional)</Label>
+              <Label htmlFor="business-account">WhatsApp Business Account ID</Label>
               <Input
                 id="business-account"
                 value={businessAccount}
                 onChange={(e) => setBusinessAccount(e.target.value)}
-                placeholder="Optional"
+                placeholder="WABA ID (recommended)"
+                autoComplete="off"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="connection-code">Connection code</Label>
+              <Label htmlFor="connection-code">Access token</Label>
               <Input
                 id="connection-code"
                 type="password"
                 value={connectionCode}
                 onChange={(e) => setConnectionCode(e.target.value)}
-                placeholder="Your private connection code"
+                placeholder="Permanent system user token"
+                autoComplete="off"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="verify-phrase">Secret phrase</Label>
+              <Label htmlFor="verify-phrase">Webhook verify token</Label>
               <Input
                 id="verify-phrase"
                 value={verifyPhrase}
                 onChange={(e) => setVerifyPhrase(e.target.value)}
-                placeholder="A secret phrase you choose"
+                placeholder="Any secret phrase you choose"
+                autoComplete="off"
               />
               <p className="text-xs text-muted-foreground">
-                Pick any phrase — you will use the same one when confirming the connection.
+                Must match the Verify Token you set in Meta for the webhook.
               </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pin">2FA PIN (optional, 6 digits)</Label>
+              <Input
+                id="pin"
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="For production number /register"
+                inputMode="numeric"
+                autoComplete="off"
+              />
             </div>
             <div className="flex gap-2 pt-2">
               <Button variant="outline" className="rounded-xl" onClick={() => setStep(1)}>
@@ -205,7 +368,7 @@ export default function ConnectPage() {
                 disabled={saving}
               >
                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Finish connecting
+                Verify with Meta &amp; save
               </Button>
             </div>
           </CardContent>
@@ -213,34 +376,123 @@ export default function ConnectPage() {
       )}
 
       {step === 3 && (
-        <Card className="rounded-3xl border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card shadow-sm">
+        <Card className="vsmart-shape border-primary/20 bg-gradient-to-br from-primary/10 via-card to-brand-orange-soft/40 shadow-sm">
           <CardHeader className="text-center">
-            <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground">
-              <CheckCircle2 className="h-7 w-7" />
+            <div
+              className={cn(
+                'vsmart-shape mx-auto mb-2 flex h-14 w-14 items-center justify-center text-white',
+                live.state === 'live' ? 'bg-brand-orange' : 'bg-muted-foreground',
+              )}
+            >
+              {live.state === 'checking' ? (
+                <Loader2 className="h-7 w-7 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-7 w-7" />
+              )}
             </div>
-            <CardTitle className="text-2xl">
-              {alreadyConnected ? "You're connected" : 'Connected'}
+            <CardTitle className="font-heading text-2xl">
+              {live.state === 'live'
+                ? 'Live on Meta'
+                : alreadyConnected
+                  ? 'Saved — check Meta status'
+                  : 'Connected'}
             </CardTitle>
             <CardDescription className="text-base">
-              WhatsApp is ready. Pick an automation and go live.
+              {live.state === 'live' && (
+                <>
+                  <span className="font-medium text-foreground">
+                    {live.phone.verified_name ?? 'WhatsApp Business'}
+                  </span>
+                  {live.phone.display_phone_number
+                    ? ` · ${live.phone.display_phone_number}`
+                    : null}
+                  {live.phone.quality_rating
+                    ? ` · Quality ${live.phone.quality_rating}`
+                    : null}
+                </>
+              )}
+              {live.state === 'offline' && live.message}
+              {live.state === 'checking' && 'Calling Meta Graph API…'}
+              {live.state === 'idle' &&
+                'WhatsApp credentials are saved. Test the live connection below.'}
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-            <Link
-              href="/automations"
-              className={cn(buttonVariants({ size: 'lg' }), 'rounded-xl')}
-            >
-              Browse automations
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
-            <Button
-              variant="outline"
-              size="lg"
-              className="rounded-xl"
-              onClick={() => setStep(2)}
-            >
-              Update connection
-            </Button>
+          <CardContent className="space-y-4">
+            <div className="space-y-3 rounded-xl border border-border bg-card/80 p-4 text-left">
+              <div>
+                <p className="font-heading text-sm font-semibold">
+                  Send a test WhatsApp
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Proves Meta can deliver — not just that credentials look valid.
+                  For test numbers, add the recipient under Meta → API Setup → To.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="test-to">Recipient phone (E.164)</Label>
+                <Input
+                  id="test-to"
+                  value={testTo}
+                  onChange={(e) => setTestTo(e.target.value)}
+                  placeholder="+919876543210"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  className="rounded-xl"
+                />
+              </div>
+              <Button
+                size="lg"
+                className="w-full rounded-xl"
+                onClick={sendTestMessage}
+                disabled={testSending || live.state === 'offline'}
+              >
+                {testSending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                Send test message
+              </Button>
+              {lastTestOk ? (
+                <p className="text-xs text-muted-foreground">
+                  Delivered to Meta · message id{' '}
+                  <code className="rounded bg-muted px-1">{lastTestOk}</code>
+                </p>
+              ) : null}
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+              <Button
+                variant="outline"
+                size="lg"
+                className="rounded-xl"
+                onClick={() => testMetaLive()}
+                disabled={live.state === 'checking'}
+              >
+                <RefreshCw
+                  className={cn(
+                    'mr-2 h-4 w-4',
+                    live.state === 'checking' && 'animate-spin',
+                  )}
+                />
+                Re-check credentials
+              </Button>
+              <Link
+                href="/automations"
+                className={cn(buttonVariants({ size: 'lg' }), 'rounded-xl')}
+              >
+                Browse automations
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+              <Button
+                variant="ghost"
+                size="lg"
+                className="rounded-xl"
+                onClick={() => setStep(2)}
+              >
+                Update credentials
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

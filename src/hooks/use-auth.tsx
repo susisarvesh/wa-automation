@@ -54,6 +54,13 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function isOpenDemoClient(): boolean {
+  return (
+    (process.env.NEXT_PUBLIC_AUTH_PROVIDER || "google").toLowerCase() ===
+    "none"
+  );
+}
+
 function syntheticOwner(accountId: string, accountName = "My Business") {
   const account: AccountSummary = {
     id: accountId,
@@ -96,16 +103,83 @@ function syntheticOwner(accountId: string, accountName = "My Business") {
   };
 }
 
+function roleFlags(role: AccountRole | null) {
+  const isOwner = role === "owner";
+  const isAdmin = role === "admin";
+  const isAgent = role === "agent";
+  const isViewer = role === "viewer";
+  return {
+    isOwner,
+    isAdmin,
+    isAgent,
+    isViewer,
+    canManageMembers: isOwner || isAdmin,
+    canEditSettings: isOwner || isAdmin,
+    canSendMessages: isOwner || isAdmin || isAgent,
+  };
+}
+
 /**
- * Single-tenant AuthProvider — no login UI. Bootstraps an invisible
- * Supabase session so RLS still works for inbox/contacts.
+ * AuthProvider — Google session (default) or open-demo MVP bootstrap.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const accountId = getPublicSingleTenantAccountId();
-  const base = syntheticOwner(accountId);
-  const [user, setUser] = useState<User | null>(base.user);
+  const fixedAccountId = getPublicSingleTenantAccountId();
+  const openDemo = isOpenDemoClient();
+
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [account, setAccount] = useState<AccountSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [accountName, setAccountName] = useState("My Business");
+
+  const loadProfile = useCallback(
+    async (u: User) => {
+      const supabase = createClient();
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select(
+          "id, full_name, email, avatar_url, role, beta_features, account_id, account_role",
+        )
+        .eq("user_id", u.id)
+        .maybeSingle();
+
+      if (!prof) {
+        setProfile(null);
+        setAccount({
+          id: fixedAccountId,
+          name: "My Business",
+          default_currency: DEFAULT_CURRENCY,
+        });
+        return;
+      }
+
+      const p: Profile = {
+        id: prof.id as string,
+        full_name: (prof.full_name as string) ?? null,
+        email: (prof.email as string) || u.email || "",
+        avatar_url: (prof.avatar_url as string) ?? null,
+        role: (prof.role as string) ?? null,
+        beta_features: (prof.beta_features as string[]) ?? [],
+        account_id: (prof.account_id as string) ?? fixedAccountId,
+        account_role: (prof.account_role as AccountRole) ?? "owner",
+      };
+      setProfile(p);
+
+      const acctId = p.account_id ?? fixedAccountId;
+      const { data: acct } = await supabase
+        .from("accounts")
+        .select("id, name, default_currency")
+        .eq("id", acctId)
+        .maybeSingle();
+
+      setAccount({
+        id: acctId,
+        name: (acct?.name as string) || "My Business",
+        default_currency:
+          (acct?.default_currency as string) || DEFAULT_CURRENCY,
+      });
+    },
+    [fixedAccountId],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -113,53 +187,114 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const res = await fetch("/api/mvp/session");
-        if (!res.ok) throw new Error("session bootstrap failed");
-        const body = (await res.json()) as {
-          access_token: string;
-          refresh_token: string;
-        };
-        const { data, error } = await supabase.auth.setSession({
-          access_token: body.access_token,
-          refresh_token: body.refresh_token,
-        });
-        if (error) throw error;
-        if (mounted && data.user) {
-          setUser(data.user);
-          const { data: acct } = await supabase
-            .from("accounts")
-            .select("name")
-            .eq("id", accountId)
-            .maybeSingle();
-          if (acct?.name) setAccountName(acct.name);
+        if (openDemo) {
+          const res = await fetch("/api/mvp/session");
+          if (!res.ok) throw new Error("session bootstrap failed");
+          const body = (await res.json()) as {
+            access_token: string;
+            refresh_token: string;
+          };
+          const { data, error } = await supabase.auth.setSession({
+            access_token: body.access_token,
+            refresh_token: body.refresh_token,
+          });
+          if (error) throw error;
+          if (mounted && data.user) {
+            setUser(data.user);
+            await loadProfile(data.user);
+          }
+        } else {
+          const {
+            data: { user: u },
+          } = await supabase.auth.getUser();
+          if (mounted) {
+            setUser(u);
+            if (u) await loadProfile(u);
+          }
         }
       } catch (err) {
-        console.warn("[AuthProvider] MVP session bootstrap:", err);
-        // Keep synthetic owner so the UI still renders.
+        console.warn("[AuthProvider] bootstrap:", err);
+        if (openDemo && mounted) {
+          const syn = syntheticOwner(fixedAccountId);
+          setUser(syn.user);
+          setProfile(syn.profile);
+          setAccount(syn.account);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
     })();
 
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) await loadProfile(u);
+      else {
+        setProfile(null);
+        if (!openDemo) setAccount(null);
+      }
+    });
+
     return () => {
       mounted = false;
+      subscription.unsubscribe();
     };
-  }, [accountId]);
+  }, [openDemo, fixedAccountId, loadProfile]);
 
-  const refreshProfile = useCallback(async () => {}, []);
-  const signOut = useCallback(async () => {}, []);
+  const refreshProfile = useCallback(async () => {
+    if (user) await loadProfile(user);
+  }, [user, loadProfile]);
+
+  const signOut = useCallback(async () => {
+    if (openDemo) return;
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    window.location.href = "/login";
+  }, [openDemo]);
 
   const value = useMemo<AuthContextValue>(() => {
-    const syn = syntheticOwner(accountId, accountName);
+    if (openDemo && !profile) {
+      const syn = syntheticOwner(fixedAccountId, account?.name);
+      return {
+        ...syn,
+        user: user ?? syn.user,
+        account: account ?? syn.account,
+        loading,
+        profileLoading: loading,
+        signOut,
+        refreshProfile,
+      };
+    }
+
+    const role = profile?.account_role ?? null;
+    const flags = roleFlags(role);
+
     return {
-      ...syn,
-      user: user ?? syn.user,
+      user,
+      profile,
       loading,
       profileLoading: loading,
       signOut,
       refreshProfile,
+      accountId: account?.id ?? profile?.account_id ?? null,
+      accountRole: role,
+      account,
+      defaultCurrency: account?.default_currency ?? DEFAULT_CURRENCY,
+      ...flags,
     };
-  }, [accountId, accountName, user, loading, signOut, refreshProfile]);
+  }, [
+    openDemo,
+    fixedAccountId,
+    user,
+    profile,
+    account,
+    loading,
+    signOut,
+    refreshProfile,
+  ]);
 
   return (
     <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

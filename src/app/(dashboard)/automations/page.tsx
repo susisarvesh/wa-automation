@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -10,8 +10,11 @@ import {
   Loader2,
   Search,
   Sparkles,
-  ToggleLeft,
-  ToggleRight,
+  Pause,
+  Play,
+  Pencil,
+  Copy,
+  Radio,
 } from "lucide-react"
 
 import { createClient } from "@/lib/supabase/client"
@@ -22,9 +25,15 @@ import {
   AUTOMATION_TEMPLATES,
   TEMPLATE_LIBRARY_ORDER,
   type TemplateCategory,
-  type TemplateSlug,
 } from "@/lib/automations/templates"
 import { cn } from "@/lib/utils"
+
+type AutomationStats = {
+  runs: number
+  sent: number
+  failed: number
+  replied: number
+}
 
 const CATEGORIES: Array<TemplateCategory | "All"> = [
   "All",
@@ -35,14 +44,25 @@ const CATEGORIES: Array<TemplateCategory | "All"> = [
   "Engagement",
 ]
 
+const emptyStats = (): AutomationStats => ({
+  runs: 0,
+  sent: 0,
+  failed: 0,
+  replied: 0,
+})
+
 export default function AutomationsPage() {
   const router = useRouter()
   const [automations, setAutomations] = useState<Automation[] | null>(null)
+  const [stats, setStats] = useState<Record<string, AutomationStats>>({})
+  const [statsLive, setStatsLive] = useState(false)
+  const [metaLive, setMetaLive] = useState<boolean | null>(null)
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("All")
-  const [toggling, setToggling] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const loadStatsRef = useRef<() => Promise<void>>(async () => {})
 
-  async function load() {
+  const loadAutomations = useCallback(async () => {
     const supabase = createClient()
     const { data, error } = await supabase
       .from("automations")
@@ -54,11 +74,70 @@ export default function AutomationsPage() {
       return
     }
     setAutomations((data ?? []) as Automation[])
-  }
+  }, [])
+
+  const loadStats = useCallback(async () => {
+    try {
+      const res = await fetch("/api/automations/stats", { cache: "no-store" })
+      const body = await res.json().catch(() => ({}))
+      if (res.ok && body.stats) setStats(body.stats)
+    } catch {
+      // non-fatal
+    }
+  }, [])
+
+  loadStatsRef.current = loadStats
 
   useEffect(() => {
-    load()
-  }, [])
+    loadAutomations()
+    loadStats()
+    fetch("/api/whatsapp/config", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((b) => setMetaLive(Boolean(b.connected)))
+      .catch(() => setMetaLive(false))
+  }, [loadAutomations, loadStats])
+
+  // Realtime: refresh stats when automation_logs or automations change.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel("automations-delivery-stats")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "automation_logs" },
+        () => {
+          void loadStatsRef.current()
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "automations" },
+        () => {
+          void loadAutomations()
+          void loadStatsRef.current()
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        () => {
+          void loadStatsRef.current()
+        },
+      )
+      .subscribe((status) => {
+        setStatsLive(status === "SUBSCRIBED")
+      })
+
+    const onVis = () => {
+      if (document.visibilityState === "visible") void loadStatsRef.current()
+    }
+    document.addEventListener("visibilitychange", onVis)
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVis)
+      void supabase.removeChannel(channel)
+    }
+  }, [loadAutomations])
 
   const library = useMemo(() => {
     return TEMPLATE_LIBRARY_ORDER.map((slug) => AUTOMATION_TEMPLATES[slug]).filter(
@@ -75,10 +154,16 @@ export default function AutomationsPage() {
   }, [category, query])
 
   async function toggleActive(a: Automation, next: boolean) {
-    setToggling(a.id)
+    if (next && metaLive === false) {
+      toast.error("Connect WhatsApp to Meta before going live")
+      router.push("/connect")
+      return
+    }
+    setBusyId(a.id)
     setAutomations(
       (prev) =>
-        prev?.map((x) => (x.id === a.id ? { ...x, is_active: next } : x)) ?? prev,
+        prev?.map((x) => (x.id === a.id ? { ...x, is_active: next } : x)) ??
+        prev,
     )
     const res = await fetch(`/api/automations/${a.id}`, {
       method: "PATCH",
@@ -87,54 +172,187 @@ export default function AutomationsPage() {
     })
     if (!res.ok) {
       toast.error("Could not update automation")
-      await load()
+      await loadAutomations()
+    } else {
+      toast.success(next ? "Live" : "Paused")
     }
-    setToggling(null)
+    setBusyId(null)
+  }
+
+  async function duplicate(a: Automation) {
+    setBusyId(a.id)
+    try {
+      const res = await fetch(`/api/automations/${a.id}/duplicate`, {
+        method: "POST",
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error ?? "Duplicate failed")
+      toast.success("Paused copy created")
+      await loadAutomations()
+      router.push(`/automations/${body.automation.id}/manage`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Duplicate failed")
+    } finally {
+      setBusyId(null)
+    }
   }
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-primary">Automations</p>
-        <h1 className="text-3xl font-bold tracking-tight">Pick a template</h1>
-        <p className="max-w-2xl text-muted-foreground">
-          Choose what you need. Answer a couple of questions. Press Publish.
-          No builders, no technical steps.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+            Automations
+          </p>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">
+            Pick a template
+          </h1>
+          <p className="max-w-2xl text-muted-foreground">
+            Preview the WhatsApp message, publish, then pause / edit / duplicate
+            without a builder.
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1 text-xs">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium",
+              metaLive
+                ? "bg-primary/10 text-primary"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                metaLive ? "bg-brand-orange" : "bg-muted-foreground",
+              )}
+            />
+            {metaLive === null
+              ? "Checking Meta…"
+              : metaLive
+                ? "Meta connected"
+                : "Meta not connected"}
+          </span>
+          <span className="inline-flex items-center gap-1 text-muted-foreground">
+            <Radio
+              className={cn("h-3 w-3", statsLive && "text-brand-orange")}
+            />
+            {statsLive ? "Live stats" : "Stats polling"}
+          </span>
+        </div>
       </div>
+
+      {metaLive === false && (
+        <div className="vsmart-shape flex flex-wrap items-center justify-between gap-3 border border-brand-orange/30 bg-brand-orange-soft px-4 py-3 text-sm">
+          <p className="text-foreground">
+            Connect WhatsApp to Meta so published automations can actually send.
+          </p>
+          <Link
+            href="/connect"
+            className={cn(buttonVariants({ size: "sm" }), "rounded-xl")}
+          >
+            Connect Meta
+          </Link>
+        </div>
+      )}
 
       {automations && automations.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Live now
+            Your automations
           </h2>
-          <div className="grid gap-2">
-            {automations.map((a) => (
-              <div
-                key={a.id}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-card px-4 py-3 shadow-sm"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{a.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {a.is_active ? "Live" : "Paused"} · {a.description ?? "Automation"}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={toggling === a.id}
-                  onClick={() => toggleActive(a, !a.is_active)}
-                  className="shrink-0"
+          <div className="grid gap-3">
+            {automations.map((a) => {
+              const s = stats[a.id] ?? emptyStats()
+              return (
+                <div
+                  key={a.id}
+                  className="vsmart-shape border border-border bg-card p-4 shadow-sm"
                 >
-                  {a.is_active ? (
-                    <ToggleRight className="h-5 w-5 text-primary" />
-                  ) : (
-                    <ToggleLeft className="h-5 w-5 text-muted-foreground" />
-                  )}
-                </Button>
-              </div>
-            ))}
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate font-heading font-semibold">
+                          {a.name}
+                        </p>
+                        <span
+                          className={cn(
+                            "rounded-md px-2 py-0.5 text-[11px] font-semibold",
+                            a.is_active
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground",
+                          )}
+                        >
+                          {a.is_active ? "Live" : "Paused"}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {a.description ?? "Automation"}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-lg"
+                        disabled={busyId === a.id}
+                        onClick={() => toggleActive(a, !a.is_active)}
+                      >
+                        {a.is_active ? (
+                          <>
+                            <Pause className="mr-1 h-3.5 w-3.5" /> Pause
+                          </>
+                        ) : (
+                          <>
+                            <Play className="mr-1 h-3.5 w-3.5" /> Go live
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-lg"
+                        onClick={() => router.push(`/automations/${a.id}/manage`)}
+                      >
+                        <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-lg"
+                        disabled={busyId === a.id}
+                        onClick={() => duplicate(a)}
+                      >
+                        <Copy className="mr-1 h-3.5 w-3.5" /> Duplicate
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-4 gap-2">
+                    {(
+                      [
+                        ["Sent", s.sent],
+                        ["Failed", s.failed],
+                        ["Replied", s.replied],
+                        ["Runs", s.runs],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-xl bg-muted/60 px-2 py-2 text-center"
+                      >
+                        <p className="font-heading text-lg font-semibold tabular-nums text-foreground">
+                          {value}
+                        </p>
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {label}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </section>
       )}
@@ -175,18 +393,18 @@ export default function AutomationsPage() {
               key={t.slug}
               type="button"
               onClick={() => router.push(`/automations/setup/${t.slug}`)}
-              className="group flex flex-col rounded-2xl border border-border/80 bg-card p-5 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md"
+              className="vsmart-shape group flex flex-col border border-border bg-card p-5 text-left shadow-sm transition hover:border-primary/40 hover:shadow-md"
             >
               <div className="mb-3 flex items-center justify-between">
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
                   {t.category}
                 </span>
-                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1 text-[11px] text-brand-orange">
                   <Sparkles className="h-3 w-3" />
-                  {t.popularity}% love it
+                  {t.popularity}%
                 </span>
               </div>
-              <h3 className="text-base font-semibold group-hover:text-primary">
+              <h3 className="font-heading text-base font-semibold group-hover:text-primary">
                 {t.name}
               </h3>
               <p className="mt-1 line-clamp-2 flex-1 text-sm text-muted-foreground">
@@ -215,12 +433,6 @@ export default function AutomationsPage() {
           </div>
         )}
       </section>
-
-      <div className="text-center">
-        <Link href="/home" className={buttonVariants({ variant: "link" })}>
-          Back to home
-        </Link>
-      </div>
     </div>
   )
 }
