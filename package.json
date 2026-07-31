@@ -1,28 +1,26 @@
 {
-  "name": "wacrm",
-  "version": "0.8.0",
+  "name": "wa-automation",
+  "version": "0.1.0",
   "private": true,
-  "description": "Self-hostable CRM template for WhatsApp built on Next.js and Supabase — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
+  "description": "Single-tenant WhatsApp Studio — connect Cloud API, run automations, and manage an inbox on Next.js + Supabase.",
   "license": "MIT",
-  "author": "Arnas Donauskas",
-  "homepage": "https://github.com/ArnasDon/wacrm",
+  "author": "Sarvesh",
+  "homepage": "https://github.com/susisarvesh/wa-automation",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ArnasDon/wacrm.git"
+    "url": "git+https://github.com/susisarvesh/wa-automation.git"
   },
   "bugs": {
-    "url": "https://github.com/ArnasDon/wacrm/issues"
+    "url": "https://github.com/susisarvesh/wa-automation/issues"
   },
   "keywords": [
-    "crm",
     "whatsapp",
     "whatsapp-business-api",
     "nextjs",
     "supabase",
     "automation",
-    "broadcast",
-    "self-hosted",
-    "template"
+    "inbox",
+    "self-hosted"
   ],
   "engines": {
     "node": ">=20.0.0"
@@ -40,13 +38,11 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
-    "@dagrejs/dagre": "^3.0.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.107.0",
-    "@xyflow/react": "^12.11.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
@@ -56,7 +52,6 @@
     "opus-recorder": "^8.0.5",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "recharts": "^3.9.2",
     "shadcn": "^4.11.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",

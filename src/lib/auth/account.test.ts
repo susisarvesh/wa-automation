@@ -1,176 +1,101 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// getCurrentAccount resolves the caller's account context. The
-// regression this file guards (issue #294): account loading must NOT
-// depend on a PostgREST embedded FK join (`accounts!inner`), because a
-// stale schema cache makes that embed fail hard and blanks the whole
-// context. It must instead read the profile and then the account with
-// two plain point queries.
+const ACCOUNT_ID = "a0000000-0000-4000-8000-000000000001";
+const USER_ID = "user-mvp-1";
 
-// ------------------------------------------------------------
-// Chainable Supabase query-builder mock. Each `.from(table)` hands back
-// a thenable builder pre-loaded with the result queued for that table,
-// so we can assert which tables were queried and with what filters.
-// ------------------------------------------------------------
-interface BuilderCall {
-  table: string;
-  columns?: string;
-  eqArgs: [string, unknown][];
-}
+const listUsers = vi.fn();
+const createUser = vi.fn();
+const updateUserById = vi.fn();
 
-function makeClient(opts: {
-  user: { id: string } | null;
-  userErr?: unknown;
-  byTable: Record<string, { data: unknown; error: unknown }>;
-}) {
-  const calls: BuilderCall[] = [];
+function makeAdminClient() {
+  const from = vi.fn((table: string) => {
+    const result =
+      table === "accounts"
+        ? {
+            data: {
+              id: ACCOUNT_ID,
+              name: "My Business",
+              owner_user_id: USER_ID,
+            },
+            error: null,
+          }
+        : table === "profiles"
+          ? { data: { id: "profile-1" }, error: null }
+          : table === "tags"
+            ? { data: { id: "tag-1" }, error: null }
+            : { data: null, error: null };
 
-  const from = (table: string) => {
-    const call: BuilderCall = { table, eqArgs: [] };
-    calls.push(call);
-    const builder = {
-      select(columns: string) {
-        call.columns = columns;
-        return builder;
-      },
-      eq(col: string, val: unknown) {
-        call.eqArgs.push([col, val]);
-        return builder;
-      },
-      maybeSingle() {
-        return Promise.resolve(
-          opts.byTable[table] ?? { data: null, error: null },
-        );
-      },
-    };
+    const builder: Record<string, unknown> = {};
+    const chain = () => builder;
+    for (const m of [
+      "select",
+      "eq",
+      "insert",
+      "update",
+      "upsert",
+      "maybeSingle",
+    ]) {
+      builder[m] = vi.fn(chain);
+    }
+    builder.maybeSingle = vi.fn(async () => result);
+    builder.then = (resolve: (v: unknown) => unknown) => resolve(result);
     return builder;
-  };
+  });
 
   return {
-    calls,
-    client: {
-      auth: {
-        getUser: () =>
-          Promise.resolve({
-            data: { user: opts.user },
-            error: opts.userErr ?? null,
-          }),
+    auth: {
+      admin: {
+        listUsers,
+        createUser,
+        updateUserById,
       },
-      from,
     },
+    from,
   };
 }
 
-const createClient = vi.fn();
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: () => createClient(),
+const supabaseAdmin = vi.fn(() => makeAdminClient());
+
+vi.mock("@/lib/flows/admin-client", () => ({
+  supabaseAdmin: () => supabaseAdmin(),
 }));
 
-const { getCurrentAccount, UnauthorizedError, ForbiddenError } = await import(
-  "./account"
-);
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: vi.fn(),
+}));
+
+const { getCurrentAccount, requireRole } = await import("./account");
+
+beforeEach(() => {
+  process.env.SINGLE_TENANT_MODE = "true";
+  process.env.SINGLE_TENANT_ACCOUNT_ID = ACCOUNT_ID;
+  listUsers.mockResolvedValue({
+    data: { users: [{ id: USER_ID, email: "mvp@localhost.local" }] },
+    error: null,
+  });
+  updateUserById.mockResolvedValue({ data: { user: { id: USER_ID } }, error: null });
+  createUser.mockResolvedValue({ data: { user: { id: USER_ID } }, error: null });
+});
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("getCurrentAccount", () => {
-  it("resolves context via a plain accounts lookup, not an embedded join", async () => {
-    const { client, calls } = makeClient({
-      user: { id: "user-1" },
-      byTable: {
-        profiles: {
-          data: { account_id: "acct-1", account_role: "owner" },
-          error: null,
-        },
-        accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
-      },
-    });
-    createClient.mockReturnValue(client);
-
+describe("getCurrentAccount — single-tenant MVP", () => {
+  it("returns the fixed workspace as owner without a login session", async () => {
     const ctx = await getCurrentAccount();
 
     expect(ctx).toMatchObject({
-      userId: "user-1",
-      accountId: "acct-1",
+      userId: USER_ID,
+      accountId: ACCOUNT_ID,
       role: "owner",
-      account: { id: "acct-1", name: "Acme" },
+      account: { id: ACCOUNT_ID, name: "My Business" },
     });
-
-    // Two queries: profiles by user_id, then accounts by id. Neither
-    // selects an embedded relationship — the regression guard.
-    expect(calls.map((c) => c.table)).toEqual(["profiles", "accounts"]);
-    expect(calls[0].columns).not.toMatch(/accounts!/);
-    expect(calls[0].eqArgs).toEqual([["user_id", "user-1"]]);
-    expect(calls[1].columns).not.toMatch(/accounts!/);
-    expect(calls[1].eqArgs).toEqual([["id", "acct-1"]]);
+    expect(listUsers).toHaveBeenCalled();
   });
 
-  it("throws UnauthorizedError when there is no session", async () => {
-    const { client } = makeClient({ user: null, byTable: {} });
-    createClient.mockReturnValue(client);
-    await expect(getCurrentAccount()).rejects.toBeInstanceOf(UnauthorizedError);
-  });
-
-  it("maps a profiles query error to 'Could not load account context'", async () => {
-    const { client } = makeClient({
-      user: { id: "user-1" },
-      byTable: {
-        profiles: { data: null, error: { code: "PGRST200" } },
-      },
-    });
-    createClient.mockReturnValue(client);
-    await expect(getCurrentAccount()).rejects.toThrow(
-      "Could not load account context",
-    );
-  });
-
-  it("maps an accounts query error to 'Could not load account context'", async () => {
-    // The exact #294 shape if the embed were still in play, but now on
-    // the decoupled accounts lookup: profile resolves, account read errors.
-    const { client } = makeClient({
-      user: { id: "user-1" },
-      byTable: {
-        profiles: {
-          data: { account_id: "acct-1", account_role: "admin" },
-          error: null,
-        },
-        accounts: { data: null, error: { code: "PGRST200" } },
-      },
-    });
-    createClient.mockReturnValue(client);
-    const err = await getCurrentAccount().catch((e) => e);
-    expect(err).toBeInstanceOf(ForbiddenError);
-    expect(err.message).toBe("Could not load account context");
-  });
-
-  it("rejects a profile not linked to an account", async () => {
-    const { client } = makeClient({
-      user: { id: "user-1" },
-      byTable: {
-        profiles: { data: { account_id: null, account_role: null }, error: null },
-      },
-    });
-    createClient.mockReturnValue(client);
-    await expect(getCurrentAccount()).rejects.toThrow(
-      "Profile is not linked to an account",
-    );
-  });
-
-  it("rejects an account_id that resolves to no readable account", async () => {
-    const { client } = makeClient({
-      user: { id: "user-1" },
-      byTable: {
-        profiles: {
-          data: { account_id: "acct-1", account_role: "viewer" },
-          error: null,
-        },
-        accounts: { data: null, error: null },
-      },
-    });
-    createClient.mockReturnValue(client);
-    await expect(getCurrentAccount()).rejects.toThrow(
-      "Profile is not linked to an account",
-    );
+  it("requireRole always allows the MVP owner", async () => {
+    const ctx = await requireRole("admin");
+    expect(ctx.role).toBe("owner");
   });
 });

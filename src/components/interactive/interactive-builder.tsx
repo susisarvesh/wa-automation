@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { slugify } from "@/components/flows/shared";
+import { slugify } from "@/lib/slugify";
 import { INTERACTIVE_LIMITS } from "@/lib/whatsapp/meta-api";
 import {
   validateInteractivePayload,

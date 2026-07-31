@@ -4,15 +4,13 @@ import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
-import type { Contact, Deal, ContactNote, Tag } from "@/types";
+import type { Contact, ContactNote, Tag } from "@/types";
 import {
   Phone,
   Mail,
   Copy,
   Check,
-  User,
   Tag as TagIcon,
-  DollarSign,
   StickyNote,
   Plus,
 } from "lucide-react";
@@ -31,7 +29,6 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
   const { accountId } = useAuth();
   const [copied, setCopied] = useState(false);
-  const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
@@ -42,13 +39,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
     const supabase = createClient();
 
-    // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
-      supabase
-        .from("deals")
-        .select("*, stage:pipeline_stages(*)")
-        .eq("contact_id", contact.id)
-        .order("created_at", { ascending: false }),
+    const [notesRes, tagsRes] = await Promise.all([
       supabase
         .from("contact_notes")
         .select("*")
@@ -60,7 +51,6 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
         .eq("contact_id", contact.id),
     ]);
 
-    if (dealsRes.data) setDeals(dealsRes.data);
     if (notesRes.data) setNotes(notesRes.data);
     if (tagsRes.data) {
       const mapped = tagsRes.data
@@ -202,50 +192,6 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                   >
                     {tag.name}
                   </span>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="my-4 border-t border-border" />
-
-          {/* Active Deals */}
-          <div>
-            <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <DollarSign className="h-3 w-3" />
-              {tSidebar("deals")}
-            </div>
-            <div className="mt-2 space-y-2">
-              {deals.length === 0 ? (
-                <p className="px-1 text-xs text-muted-foreground">{tSidebar("noDeals")}</p>
-              ) : (
-                deals.map((deal) => (
-                  <div
-                    key={deal.id}
-                    className="rounded-lg bg-muted px-3 py-2"
-                  >
-                    <p className="text-sm font-medium text-foreground">
-                      {deal.title}
-                    </p>
-                    <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        {deal.currency ?? "$"}
-                        {deal.value.toLocaleString()}
-                      </span>
-                      {deal.stage && (
-                        <span
-                          className="rounded-full px-1.5 py-0.5 text-[10px]"
-                          style={{
-                            backgroundColor: `${deal.stage.color}20`,
-                            color: deal.stage.color,
-                          }}
-                        >
-                          {deal.stage.name}
-                        </span>
-                      )}
-                    </div>
-                  </div>
                 ))
               )}
             </div>

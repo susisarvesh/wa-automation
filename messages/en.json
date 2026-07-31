@@ -127,10 +127,10 @@
   },
   "Inbox": {
     "page": {
-      "whatsappNotConnected": "WhatsApp® is not connected. Go to Settings to connect your account."
+      "whatsappNotConnected": "WhatsApp is not connected yet. Open Connect to link your business number."
     },
     "conversationList": {
-      "searchPlaceholder": "Search conversations...",
+      "searchPlaceholder": "Search messages...",
       "filterAll": "All",
       "filterUnread": "Unread",
       "filterOpen": "Open",
@@ -140,18 +140,18 @@
       "company": "Company",
       "allCompanies": "All companies",
       "clearAll": "Clear all",
-      "noConversations": "No conversations found",
+      "noConversations": "No chats yet — they'll show up when customers message you",
       "noMessagesYet": "No messages yet",
-      "unknown": "Unknown"
+      "unknown": "Customer"
     },
     "messageThread": {
-      "backToConversations": "Back to conversations",
-      "hideContactPanel": "Hide contact panel",
-      "showContactPanel": "Show contact panel",
-      "hideContact": "Hide contact",
-      "showContact": "Show contact",
+      "backToConversations": "Back to chats",
+      "hideContactPanel": "Hide customer details",
+      "showContactPanel": "Show customer details",
+      "hideContact": "Hide customer",
+      "showContact": "Show customer",
       "refresh": "Refresh",
-      "refreshConversation": "Refresh conversation",
+      "refreshConversation": "Refresh chat",
       "status": "Status",
       "statusOpen": "Open",
       "statusPending": "Pending",
@@ -162,9 +162,9 @@
       "noTeammates": "No teammates available",
       "me": " (me)",
       "noMessagesYet": "No messages yet",
-      "sendTemplateHint": "Send a template to start the conversation",
-      "selectConversation": "Select a conversation",
-      "selectConversationHint": "Choose a conversation from the left to start messaging",
+      "sendTemplateHint": "Send a message to start the conversation",
+      "selectConversation": "Your inbox is ready",
+      "selectConversationHint": "Pick a chat on the left — or wait for a customer to message you",
       "today": "Today",
       "yesterday": "Yesterday"
     },
@@ -276,7 +276,7 @@
   },
   "Contacts": {
     "page": {
-      "title": "Contacts",
+      "title": "Customers",
       "subtitle": "Manage your contact list. {count} total contacts.",
       "subtitleZero": "Manage your contact list.",
       "customFieldsBtn": "Custom fields",
@@ -298,8 +298,8 @@
         "createdAt": "Created"
       },
       "loading": "Loading contacts...",
-      "noContactsMatch": "No contacts match your filters.",
-      "noContactsYet": "No contacts yet.",
+      "noContactsMatch": "No customers match your filters.",
+      "noContactsYet": "No customers yet — they'll appear when people message you.",
       "addFirstContact": "Add your first contact",
       "unnamed": "Unnamed",
       "editAction": "Edit",

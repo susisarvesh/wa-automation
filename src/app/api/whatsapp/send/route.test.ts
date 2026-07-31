@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Exercise the multi-tenant auth path so these unit tests can mock
+// createClient + role checks. Single-tenant MVP mode short-circuits that.
+process.env.SINGLE_TENANT_MODE = 'false'
+
 // ---------------------------------------------------------------------------
 // Tests for the `contact_id` send path (issue #296): sending an approved
 // template to a single contact from the Contact detail view. The route must

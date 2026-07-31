@@ -9,13 +9,11 @@ that standard.
 ## Reporting
 
 If you witness or experience behaviour that violates the Code, please
-report it privately to the project maintainer:
+report it privately via a
+[GitHub Security Advisory](https://github.com/susisarvesh/wa-automation/security/advisories/new)
+or by contacting the repository owner (@susisarvesh).
 
-- Email: **a.donauskas@hostinger.com** with `[CRM template conduct]` in
-  the subject.
-
-Reports are handled confidentially. Expect an acknowledgement within
-72 hours and a decision on next steps within a week.
+Reports are handled confidentially.
 
 ## Enforcement
 

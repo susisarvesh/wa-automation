@@ -277,19 +277,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
       setStages((stagesRes.data as PipelineStageOption[] | null) ?? [])
     })()
 
-    // Members go through the API so we inherit its email-visibility
-    // rules (agents/viewers don't see emails). Unreachable on older
-    // deployments → pickers fall back to a raw agent-id input.
-    void (async () => {
-      try {
-        const res = await fetch("/api/account/members", { cache: "no-store" })
-        if (!res.ok) return
-        const json = (await res.json()) as { members?: AccountMember[] }
-        if (!cancelled) setMembers(json.members ?? [])
-      } catch {
-        // Members endpoint absent — caller falls back to raw input.
-      }
-    })()
+    // Single-tenant MVP: no team members API — picker falls back to raw id.
 
     return () => {
       cancelled = true

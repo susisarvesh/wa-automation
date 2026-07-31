@@ -75,8 +75,6 @@ BEGIN
     UPDATE message_reactions SET conversation_id = v_survivor WHERE conversation_id = ANY(v_losers);
     UPDATE deals             SET conversation_id = v_survivor WHERE conversation_id = ANY(v_losers);
     UPDATE flow_runs         SET conversation_id = v_survivor WHERE conversation_id = ANY(v_losers);
-    UPDATE notifications     SET conversation_id = v_survivor WHERE conversation_id = ANY(v_losers);
-    UPDATE ai_usage_log      SET conversation_id = v_survivor WHERE conversation_id = ANY(v_losers);
 
     -- Roll the merged unread counts onto the survivor and re-derive
     -- its last-message summary from the now-complete message set, so
