@@ -1,12 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   matchesContactFilters,
+  matchesTeamInboxFilter,
   normalizeConversation,
 } from "./conversations";
 import type { Conversation } from "@/types";
 
 function makeConversation(
   contact: Partial<Conversation["contact"]> | null,
+  extras: Partial<Conversation> = {},
 ): Conversation {
   return {
     id: "c1",
@@ -27,6 +29,7 @@ function makeConversation(
           ...contact,
         }
       : undefined,
+    ...extras,
   };
 }
 
@@ -97,6 +100,23 @@ describe("matchesContactFilters", () => {
     expect(
       matchesContactFilters(conv, { tagIds: ["tX"], company: "Acme" }),
     ).toBe(false);
+  });
+});
+
+describe("matchesTeamInboxFilter", () => {
+  it("filters mine / unassigned / done", () => {
+    const mine = makeConversation(null, { assigned_agent_id: "agent-1" });
+    const unassigned = makeConversation(null, { assigned_agent_id: undefined });
+    const done = makeConversation(null, { status: "closed" });
+
+    expect(matchesTeamInboxFilter(mine, "mine", "agent-1")).toBe(true);
+    expect(matchesTeamInboxFilter(mine, "mine", "other")).toBe(false);
+    expect(matchesTeamInboxFilter(unassigned, "unassigned", "agent-1")).toBe(
+      true,
+    );
+    expect(matchesTeamInboxFilter(mine, "unassigned", "agent-1")).toBe(false);
+    expect(matchesTeamInboxFilter(done, "done", "agent-1")).toBe(true);
+    expect(matchesTeamInboxFilter(mine, "done", "agent-1")).toBe(false);
   });
 });
 

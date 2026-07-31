@@ -69,3 +69,41 @@ export function matchesContactFilters(
 
   return true;
 }
+
+export type TeamInboxFilter =
+  | "all"
+  | "unread"
+  | "mine"
+  | "unassigned"
+  | "open"
+  | "pending"
+  | "done";
+
+/**
+ * Team-inbox list filter (Mine / Unassigned / Done + status).
+ * `userId` is required for `mine`; ignored otherwise.
+ */
+export function matchesTeamInboxFilter(
+  conversation: Conversation,
+  filter: TeamInboxFilter,
+  userId: string | null | undefined,
+): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "unread":
+      return conversation.unread_count > 0;
+    case "mine":
+      return !!userId && conversation.assigned_agent_id === userId;
+    case "unassigned":
+      return !conversation.assigned_agent_id;
+    case "open":
+      return conversation.status === "open";
+    case "pending":
+      return conversation.status === "pending";
+    case "done":
+      return conversation.status === "closed";
+    default:
+      return true;
+  }
+}

@@ -132,6 +132,9 @@
     "conversationList": {
       "searchPlaceholder": "Search messages...",
       "filterAll": "All",
+      "filterMine": "Mine",
+      "filterUnassigned": "Unassigned",
+      "filterDone": "Done",
       "filterUnread": "Unread",
       "filterOpen": "Open",
       "filterPending": "Pending",
