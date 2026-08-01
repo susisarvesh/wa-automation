@@ -176,11 +176,39 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
 
-    await requestPhoneVerificationCode({
-      phoneNumberId,
-      accessToken,
-      codeMethod: "SMS",
-    });
+    // Only request a new OTP on first start. Re-clicks must use Resend.
+    // Repeated /request_code triggers Meta (#136024) rate limits.
+    const alreadyPending =
+      existingForEmployee?.status === "pending_verification" &&
+      Boolean(existingForEmployee.phone_number_id);
+    const forceNewCode = body.force_new_code === true;
+
+    let codeRequested = false;
+    let codeSkippedReason: string | null = null;
+
+    if (alreadyPending && !forceNewCode) {
+      codeSkippedReason =
+        "A verification was already started. Enter the SMS you already received, or wait before using Resend SMS.";
+    } else {
+      try {
+        await requestPhoneVerificationCode({
+          phoneNumberId,
+          accessToken,
+          codeMethod: "SMS",
+        });
+        codeRequested = true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const lower = message.toLowerCase();
+        const rateLimited =
+          lower.includes("136024") ||
+          lower.includes("too many times") ||
+          (lower.includes("verification code") && lower.includes("later"));
+        // Keep pending row so user can enter a code that already arrived.
+        if (!rateLimited) throw err;
+        codeSkippedReason = humanizeMetaError(message);
+      }
+    }
 
     const row = {
       account_id: ctx.accountId,
@@ -193,7 +221,8 @@ export async function POST(request: Request, { params }: Params) {
       is_primary: false,
       label: verifiedName,
       employee_id: employeeId,
-      last_registration_error: null,
+      last_registration_error:
+        codeRequested || alreadyPending ? null : codeSkippedReason,
       updated_at: new Date().toISOString(),
     };
 
@@ -212,6 +241,30 @@ export async function POST(request: Request, { params }: Params) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
     }
+
+    if (!codeRequested && codeSkippedReason && !alreadyPending) {
+      // First attempt rate-limited — still advance to OTP entry.
+      return NextResponse.json({
+        ok: true,
+        phone_number_id: phoneNumberId,
+        employee_id: employeeId,
+        display_hint: `+${parts.e164Digits}`,
+        rate_limited: true,
+        message: codeSkippedReason,
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      phone_number_id: phoneNumberId,
+      employee_id: employeeId,
+      display_hint: `+${parts.e164Digits}`,
+      code_requested: codeRequested,
+      message: codeRequested
+        ? `SMS code sent to ${employee.phone}. Enter it below with a 6-digit PIN.`
+        : codeSkippedReason ||
+          `Continue: enter the SMS code sent to ${employee.phone}.`,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
@@ -223,12 +276,4 @@ export async function POST(request: Request, { params }: Params) {
       { status: 400 },
     );
   }
-
-  return NextResponse.json({
-    ok: true,
-    phone_number_id: phoneNumberId,
-    employee_id: employeeId,
-    display_hint: `+${parts.e164Digits}`,
-    message: `SMS code sent to ${employee.phone}. Enter it below with a 6-digit PIN.`,
-  });
 }

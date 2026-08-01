@@ -26,6 +26,14 @@ export function humanizeMetaError(raw: string | undefined | null): string {
   }
 
   if (
+    lower.includes("too many times") ||
+    lower.includes("136024") ||
+    (lower.includes("verification code") && lower.includes("later"))
+  ) {
+    return "Meta blocked more SMS codes for this number. Wait 1–2 hours (sometimes up to 24h), then use Resend SMS once. If a code already arrived, enter it now — do not keep clicking Send.";
+  }
+
+  if (
     lower.includes("invalid parameter") ||
     lower.includes("(#100)") ||
     lower.includes("(#131009)") ||
@@ -68,7 +76,7 @@ export function humanizeMetaError(raw: string | undefined | null): string {
     lower.includes("80007") ||
     lower.includes("613")
   ) {
-    return "Meta rate-limited this request. Wait 5–10 minutes, then click Re-check credentials. Do not keep saving or changing the PIN.";
+    return "Meta rate-limited this request. Wait 5–10 minutes, then try once more. Do not keep retrying.";
   }
 
   if (lower.includes("permission") || lower.includes("(#10)")) {

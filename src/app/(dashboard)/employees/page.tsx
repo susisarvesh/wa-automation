@@ -106,6 +106,15 @@ export default function EmployeesPage() {
 
   async function startWhatsApp() {
     if (!wizardEmp) return;
+    // Already pending — go enter code; do not burn another Meta OTP.
+    if (wizardEmp.whatsapp?.status === "pending_verification") {
+      setWizardStep("otp");
+      toast.message(
+        "Enter the SMS code Meta already sent. Use Resend only after waiting — Meta blocks too many requests.",
+        { duration: 8000 },
+      );
+      return;
+    }
     setWizardBusy(true);
     try {
       const res = await fetch(
@@ -119,12 +128,21 @@ export default function EmployeesPage() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(body.error || "Could not start WhatsApp setup", {
-          duration: 10000,
+          duration: 12000,
         });
         if (body.detail && body.detail !== body.error) {
           toast.message(String(body.detail).slice(0, 200), { duration: 8000 });
         } else if (body.tip) {
           toast.message(body.tip, { duration: 7000 });
+        }
+        // Still allow OTP entry if Meta already created the number.
+        if (
+          String(body.error ?? body.detail ?? "")
+            .toLowerCase()
+            .includes("too many") ||
+          String(body.detail ?? "").includes("136024")
+        ) {
+          setWizardStep("otp");
         }
         return;
       }
@@ -132,7 +150,13 @@ export default function EmployeesPage() {
         typeof body.display_hint === "string" ? body.display_hint : null,
       );
       setWizardStep("otp");
-      toast.success(body.message || "SMS code sent");
+      if (body.rate_limited || body.code_requested === false) {
+        toast.message(body.message || "Enter the SMS code if you received one", {
+          duration: 10000,
+        });
+      } else {
+        toast.success(body.message || "SMS code sent");
+      }
       await load();
     } finally {
       setWizardBusy(false);
@@ -669,7 +693,9 @@ export default function EmployeesPage() {
                   {wizardBusy ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : null}
-                  Send SMS code
+                  {wizardEmp?.whatsapp?.status === "pending_verification"
+                    ? "Enter SMS code"
+                    : "Send SMS code"}
                 </Button>
               ) : (
                 <Button
