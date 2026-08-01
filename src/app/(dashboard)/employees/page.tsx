@@ -1,17 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Loader2, Plus, Sparkles, Trash2, Users } from "lucide-react";
+import { Loader2, Plus, Send, Sparkles, Trash2, Users } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
   AccessLockedPanel,
   AccessWaitingBanner,
 } from "@/components/auth/access-locked";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import type { Employee } from "@/types";
 
 export default function EmployeesPage() {
@@ -22,6 +24,10 @@ export default function EmployeesPage() {
   const [email, setEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [setupBusy, setSetupBusy] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testTo, setTestTo] = useState("");
+  const [businessNumber, setBusinessNumber] = useState<string | null>(null);
+  const [howToTest, setHowToTest] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/employees", { cache: "no-store" });
@@ -34,9 +40,26 @@ export default function EmployeesPage() {
     setEmployees((body.employees ?? []) as Employee[]);
   }, []);
 
+  const loadBusinessNumber = useCallback(async () => {
+    try {
+      const res = await fetch("/api/whatsapp/config", { cache: "no-store" });
+      const body = await res.json().catch(() => ({}));
+      if (body.phone_info?.display_phone_number) {
+        setBusinessNumber(String(body.phone_info.display_phone_number));
+      } else if (body.phone_number_id) {
+        setBusinessNumber(`Meta ID ${body.phone_number_id}`);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
-    if (!authLoading && isAccessApproved) void load();
-  }, [authLoading, isAccessApproved, load]);
+    if (!authLoading && isAccessApproved) {
+      void load();
+      void loadBusinessNumber();
+    }
+  }, [authLoading, isAccessApproved, load, loadBusinessNumber]);
 
   async function addEmployee() {
     if (!name.trim() || !phone.trim()) {
@@ -112,9 +135,40 @@ export default function EmployeesPage() {
         toast.error(body.error || "Setup failed");
         return;
       }
+      if (body.business_number) setBusinessNumber(String(body.business_number));
+      if (body.how_to_test) setHowToTest(String(body.how_to_test));
       toast.success(body.message || "Automations ready");
+      if (body.how_to_test) {
+        toast.message(body.how_to_test, { duration: 8000 });
+      }
     } finally {
       setSetupBusy(false);
+    }
+  }
+
+  async function runTest() {
+    const to = testTo.trim() || employees?.[0]?.phone || "";
+    if (!to) {
+      toast.error("Enter your personal phone to receive the test reply");
+      return;
+    }
+    setTestBusy(true);
+    try {
+      const res = await fetch("/api/employees/test-automation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body.error || "Test failed");
+        return;
+      }
+      if (body.business_number) setBusinessNumber(String(body.business_number));
+      toast.success(body.message || "Test sent — check WhatsApp");
+      if (body.tip) toast.message(body.tip, { duration: 8000 });
+    } finally {
+      setTestBusy(false);
     }
   }
 
@@ -146,12 +200,11 @@ export default function EmployeesPage() {
             Employees
           </h1>
           <p className="text-sm text-muted-foreground">
-            Staff directory for vSmart. Customers message your{" "}
+            Staff directory for inbox assignment. Automations always run on your{" "}
             <span className="font-medium text-foreground">
-              company WhatsApp number
+              company Meta WhatsApp number
             </span>
-            ; automations reply with services/FAQ. Assign chats to employees in
-            Inbox.
+            — not on an employee&apos;s personal phone.
           </p>
         </div>
         {canEditSettings ? (
@@ -172,6 +225,83 @@ export default function EmployeesPage() {
         ) : null}
       </div>
 
+      <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm space-y-2">
+        <p className="font-medium text-foreground">How auto-reply works</p>
+        <ol className="list-decimal space-y-1 pl-4 text-muted-foreground">
+          <li>
+            Customer WhatsApps your company number
+            {businessNumber ? (
+              <>
+                :{" "}
+                <span className="font-medium text-foreground">
+                  {businessNumber}
+                </span>
+              </>
+            ) : (
+              <>
+                {" "}
+                (see{" "}
+                <Link href="/connect" className="underline underline-offset-2">
+                  Connect
+                </Link>
+                )
+              </>
+            )}
+          </li>
+          <li>
+            They send <span className="text-foreground">Hi</span> (or services /
+            pricing) → automation replies.
+          </li>
+          <li>
+            Messaging an employee&apos;s personal number will{" "}
+            <span className="text-foreground">not</span> trigger this app.
+          </li>
+        </ol>
+        {howToTest ? (
+          <p className="text-xs text-muted-foreground pt-1">{howToTest}</p>
+        ) : null}
+        {canEditSettings ? (
+          <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-end">
+            <div className="flex-1 space-y-1">
+              <Label htmlFor="test-to" className="text-xs">
+                Send a test auto-reply to this phone
+              </Label>
+              <Input
+                id="test-to"
+                value={testTo}
+                onChange={(e) => setTestTo(e.target.value)}
+                placeholder="+919790985447"
+                className="rounded-xl"
+              />
+            </div>
+            <Button
+              size="sm"
+              className="rounded-xl"
+              disabled={testBusy}
+              onClick={() => void runTest()}
+            >
+              {testBusy ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Test auto-reply
+            </Button>
+          </div>
+        ) : null}
+        {!businessNumber ? (
+          <Link
+            href="/connect"
+            className={cn(
+              buttonVariants({ variant: "link", size: "sm" }),
+              "h-auto px-0",
+            )}
+          >
+            Connect company WhatsApp first →
+          </Link>
+        ) : null}
+      </div>
+
       {canEditSettings ? (
         <div className="space-y-4 border-y border-border py-6">
           <h2 className="text-sm font-semibold">Add employee</h2>
@@ -186,7 +316,7 @@ export default function EmployeesPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="emp-phone">Phone</Label>
+              <Label htmlFor="emp-phone">Phone (personal contact)</Label>
               <Input
                 id="emp-phone"
                 value={phone}

@@ -128,18 +128,49 @@ export async function POST(request: Request) {
         },
       ],
     });
+
+    // Avoid double “Hi” replies when the older FAQ template is also live.
+    await admin
+      .from("automations")
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq("account_id", ctx.accountId)
+      .eq("is_active", true)
+      .in("name", ["FAQ Auto Reply", "FAQ Auto Reply (Copy)"]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
+  }
+
+  const { resolveWhatsAppConfig } = await import(
+    "@/lib/whatsapp/resolve-config"
+  );
+  const { decrypt } = await import("@/lib/whatsapp/encryption");
+  const { verifyPhoneNumber } = await import("@/lib/whatsapp/meta-api");
+  const config = await resolveWhatsAppConfig(admin, ctx.accountId);
+  let businessNumber: string | null = null;
+  if (config) {
+    try {
+      const info = await verifyPhoneNumber({
+        phoneNumberId: config.phone_number_id,
+        accessToken: decrypt(config.access_token),
+      });
+      businessNumber = info.display_phone_number ?? null;
+    } catch {
+      businessNumber = null;
+    }
   }
 
   return NextResponse.json({
     ok: true,
     created,
     skipped,
+    business_number: businessNumber,
     message:
       created.length > 0
         ? `Activated: ${created.join(", ")}`
         : "Services automations already exist for this workspace.",
+    how_to_test: businessNumber
+      ? `From another phone, open WhatsApp and message ${businessNumber} with “Hi”. Do not message an employee’s personal number.`
+      : 'From another phone, message your connected company Meta WhatsApp number with “Hi” (Connect page). Not an employee’s personal phone.',
   });
 }
