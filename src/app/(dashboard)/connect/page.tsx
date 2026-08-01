@@ -29,8 +29,6 @@ import {
 import { cn } from '@/lib/utils';
 import { humanizeMetaError } from '@/lib/whatsapp/meta-errors';
 import { AccessLockedPanel } from '@/components/auth/access-locked';
-import { MultiNumbersPanel } from '@/components/connect/multi-numbers-panel';
-
 type Step = 1 | 2 | 3;
 
 type PhoneInfo = {
@@ -640,7 +638,6 @@ export default function ConnectPage() {
         </Card>
       )}
 
-      {alreadyConnected && step === 3 ? <MultiNumbersPanel /> : null}
     </div>
   );
 }

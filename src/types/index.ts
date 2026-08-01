@@ -157,36 +157,13 @@ export interface ContactNote {
 
 export type ConversationStatus = 'open' | 'pending' | 'closed';
 
-export interface EmployeeWhatsAppLink {
-  config_id: string;
-  phone_number_id: string;
-  status: 'connected' | 'disconnected' | 'pending_verification' | string;
-  label?: string | null;
-  last_registration_error?: string | null;
-}
-
-export interface Employee {
-  id: string;
-  account_id: string;
-  user_id?: string | null;
-  name: string;
-  phone: string;
-  email?: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at?: string;
-  /** Present when GET /api/employees joins whatsapp_config. */
-  whatsapp?: EmployeeWhatsAppLink | null;
-}
-
 export interface Conversation {
   id: string;
   user_id: string;
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
-  employee_id?: string | null;
-  /** Meta Cloud API phone_number_id this thread is on (multi-number). */
+  /** Meta Cloud API phone_number_id this thread is on. */
   phone_number_id?: string | null;
   last_message_text?: string;
   last_message_at?: string;
@@ -300,11 +277,9 @@ export interface WhatsAppConfig {
   verify_token?: string;
   status: 'connected' | 'disconnected' | 'pending_verification';
   connected_at?: string;
-  /** Friendly name shown in Connect (e.g. "Sales line"). */
+  /** Friendly name shown in Connect. */
   label?: string | null;
-  /** Optional employee this Meta line is linked to. */
-  employee_id?: string | null;
-  /** Exactly one primary line per account. */
+  /** Primary line for the account (single-number product). */
   is_primary?: boolean;
   /**
    * Set when POST /{phone_number_id}/register last succeeded. NULL
@@ -409,8 +384,21 @@ export interface Deal {
   assignee?: Profile;
 }
 
-export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
-export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
+export type BroadcastStatus =
+  | 'draft'
+  | 'scheduled'
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'cancelled';
+export type RecipientStatus =
+  | 'pending'
+  | 'sent'
+  | 'delivered'
+  | 'read'
+  | 'replied'
+  | 'failed'
+  | 'cancelled';
 
 export interface Broadcast {
   id: string;

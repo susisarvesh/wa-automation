@@ -69,7 +69,10 @@ export async function POST(request: Request) {
   const audience = parseAudienceFilter(body.audience_filter);
   if (!audience) {
     return NextResponse.json(
-      { error: "audience_filter.tag_ids must be a non-empty array" },
+      {
+        error:
+          'audience_filter must be { mode: "all" } or { mode: "tags", tag_ids: [...] }',
+      },
       { status: 400 },
     );
   }

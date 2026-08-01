@@ -24,6 +24,7 @@ const STATUS_LABEL: Record<BroadcastStatus, string> = {
   sending: "Sending",
   sent: "Sent",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 export default function BroadcastDetailPage() {
@@ -90,7 +91,11 @@ export default function BroadcastDetailPage() {
         toast.error(body.error || "Cancel failed");
         return;
       }
-      toast.success("Schedule cancelled");
+      toast.success(
+        broadcast?.status === "sending"
+          ? "Sending stopped"
+          : "Schedule cancelled",
+      );
       setBroadcast(body.broadcast);
     } finally {
       setBusy(false);
@@ -196,14 +201,26 @@ export default function BroadcastDetailPage() {
               Cancel schedule
             </Button>
           ) : null}
+          {broadcast.status === "sending" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void cancel()}
+            >
+              Stop sending
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {[
           ["Recipients", broadcast.total_recipients],
           ["Sent", broadcast.sent_count],
           ["Delivered", broadcast.delivered_count],
+          ["Read", broadcast.read_count],
+          ["Replied", broadcast.replied_count],
           ["Failed", broadcast.failed_count],
         ].map(([label, value]) => (
           <div key={String(label)} className="space-y-1 border-t border-border pt-3">

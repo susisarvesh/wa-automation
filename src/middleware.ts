@@ -100,7 +100,6 @@ export async function middleware(request: NextRequest) {
     "/home",
     "/inbox",
     "/contacts",
-    "/employees",
     "/automations",
     "/broadcasts",
     "/templates",
@@ -118,14 +117,15 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(NextResponse.redirect(url));
   }
 
-  // Protect app APIs (webhook + cron stay public; cron routes auth themselves)
+  // Protect app APIs (webhook + cron + CRM integration auth themselves)
   if (
     !user &&
     path.startsWith("/api/") &&
     !path.startsWith("/api/whatsapp/webhook") &&
     !path.startsWith("/api/automations/cron") &&
     !path.startsWith("/api/cron/") &&
-    !path.startsWith("/api/mvp/")
+    !path.startsWith("/api/mvp/") &&
+    !path.startsWith("/api/integrations/")
   ) {
     return withRefreshedCookies(
       NextResponse.json({ error: "Unauthorized" }, { status: 401 }),

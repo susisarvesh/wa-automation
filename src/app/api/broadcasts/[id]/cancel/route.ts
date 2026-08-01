@@ -5,7 +5,7 @@ import { writeAuditLog } from "@/lib/audit/log";
 
 type Params = { params: Promise<{ id: string }> };
 
-/** Cancel a scheduled campaign → back to draft. */
+/** Cancel a scheduled campaign → draft, or stop an in-flight send. */
 export async function POST(_request: Request, { params }: Params) {
   let ctx;
   try {
@@ -30,38 +30,82 @@ export async function POST(_request: Request, { params }: Params) {
   if (!broadcast) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (broadcast.status !== "scheduled") {
-    return NextResponse.json(
-      { error: "Only scheduled campaigns can be cancelled" },
-      { status: 400 },
-    );
+
+  if (broadcast.status === "scheduled") {
+    const { data: updated, error: updErr } = await admin
+      .from("broadcasts")
+      .update({
+        status: "draft",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("status", "scheduled")
+      .select("*")
+      .single();
+
+    if (updErr || !updated) {
+      return NextResponse.json(
+        { error: updErr?.message ?? "cancel failed" },
+        { status: 500 },
+      );
+    }
+
+    await writeAuditLog(admin, {
+      action: "broadcast.cancel",
+      actorUserId: ctx.userId,
+      accountId: ctx.accountId,
+      resourceType: "broadcast",
+      resourceId: id,
+      meta: { from: "scheduled" },
+    });
+
+    return NextResponse.json({ broadcast: updated });
   }
 
-  const { data: updated, error: updErr } = await admin
-    .from("broadcasts")
-    .update({
-      status: "draft",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("status", "scheduled")
-    .select("*")
-    .single();
+  if (broadcast.status === "sending") {
+    const now = new Date().toISOString();
+    await admin
+      .from("broadcast_recipients")
+      .update({
+        status: "cancelled",
+        error_message: "Cancelled by user",
+      })
+      .eq("broadcast_id", id)
+      .eq("status", "pending");
 
-  if (updErr || !updated) {
-    return NextResponse.json(
-      { error: updErr?.message ?? "cancel failed" },
-      { status: 500 },
-    );
+    const { data: updated, error: updErr } = await admin
+      .from("broadcasts")
+      .update({
+        status: "cancelled",
+        completed_at: now,
+        updated_at: now,
+      })
+      .eq("id", id)
+      .eq("status", "sending")
+      .select("*")
+      .single();
+
+    if (updErr || !updated) {
+      return NextResponse.json(
+        { error: updErr?.message ?? "cancel failed" },
+        { status: 500 },
+      );
+    }
+
+    await writeAuditLog(admin, {
+      action: "broadcast.cancel",
+      actorUserId: ctx.userId,
+      accountId: ctx.accountId,
+      resourceType: "broadcast",
+      resourceId: id,
+      meta: { from: "sending" },
+    });
+
+    return NextResponse.json({ broadcast: updated });
   }
 
-  await writeAuditLog(admin, {
-    action: "broadcast.cancel",
-    actorUserId: ctx.userId,
-    accountId: ctx.accountId,
-    resourceType: "broadcast",
-    resourceId: id,
-  });
-
-  return NextResponse.json({ broadcast: updated });
+  return NextResponse.json(
+    { error: "Only scheduled or sending campaigns can be cancelled" },
+    { status: 400 },
+  );
 }

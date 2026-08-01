@@ -96,7 +96,7 @@ export function matchesTeamInboxFilter(
     case "mine":
       return !!userId && conversation.assigned_agent_id === userId;
     case "unassigned":
-      return !conversation.assigned_agent_id && !conversation.employee_id;
+      return !conversation.assigned_agent_id;
     case "open":
       return conversation.status === "open";
     case "pending":

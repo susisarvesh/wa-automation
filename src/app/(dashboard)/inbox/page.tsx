@@ -538,18 +538,13 @@ function InboxPageInner() {
   );
 
   const handleAssignChange = useCallback(
-    (
-      conversationId: string,
-      assignedAgentId: string | null,
-      employeeId?: string | null,
-    ) => {
+    (conversationId: string, assignedAgentId: string | null) => {
       setConversations((prev) =>
         prev.map((c) =>
           c.id === conversationId
             ? {
                 ...c,
                 assigned_agent_id: assignedAgentId ?? undefined,
-                employee_id: employeeId ?? null,
               }
             : c,
         ),
@@ -560,7 +555,6 @@ function InboxPageInner() {
             ? {
                 ...prev,
                 assigned_agent_id: assignedAgentId ?? undefined,
-                employee_id: employeeId ?? null,
               }
             : prev,
         );

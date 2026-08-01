@@ -33,6 +33,9 @@ export default function NewBroadcastPage() {
   const [name, setName] = useState("");
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [audienceMode, setAudienceMode] = useState<"all" | "tags">("all");
+  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [templateKey, setTemplateKey] = useState("");
   const [bodyParams, setBodyParams] = useState<string[]>([]);
@@ -115,6 +118,45 @@ export default function NewBroadcastPage() {
     });
   }, [selectedTemplate]);
 
+  const audienceFilter = useMemo(
+    () =>
+      audienceMode === "all"
+        ? { mode: "all" as const }
+        : { mode: "tags" as const, tag_ids: selectedTagIds },
+    [audienceMode, selectedTagIds],
+  );
+
+  useEffect(() => {
+    if (!isAccessApproved) return;
+    if (audienceMode === "tags" && selectedTagIds.length === 0) {
+      setPreviewCount(0);
+      return;
+    }
+    let cancelled = false;
+    setPreviewing(true);
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch("/api/broadcasts/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audience_filter: audienceFilter }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (cancelled) return;
+          if (res.ok) setPreviewCount(Number(body.count ?? 0));
+          else setPreviewCount(null);
+        } finally {
+          if (!cancelled) setPreviewing(false);
+        }
+      })();
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [audienceFilter, audienceMode, selectedTagIds.length, isAccessApproved]);
+
   async function save(andSend: "draft" | "now" | "schedule") {
     if (!name.trim()) {
       toast.error("Name is required");
@@ -124,8 +166,12 @@ export default function NewBroadcastPage() {
       toast.error("Pick an approved template");
       return;
     }
-    if (selectedTagIds.length === 0) {
+    if (audienceMode === "tags" && selectedTagIds.length === 0) {
       toast.error("Select at least one tag");
+      return;
+    }
+    if (previewCount === 0) {
+      toast.error("Audience has 0 recipients — add contacts or change filters");
       return;
     }
     if (andSend === "schedule" && !scheduledAt) {
@@ -147,7 +193,7 @@ export default function NewBroadcastPage() {
           template_name: selectedTemplate.name,
           template_language: selectedTemplate.language,
           body_params: bodyParams,
-          audience_filter: { tag_ids: selectedTagIds },
+          audience_filter: audienceFilter,
           scheduled_at: scheduledIso,
         }),
       });
@@ -212,7 +258,7 @@ export default function NewBroadcastPage() {
           New campaign
         </h1>
         <p className="text-sm text-muted-foreground">
-          Choose a template and tag audience, then send or schedule.
+          Choose an approved template and audience, then send or schedule.
         </p>
       </div>
 
@@ -274,9 +320,11 @@ export default function NewBroadcastPage() {
           </select>
           {templates.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              Campaigns need Meta-approved WhatsApp message templates. Create one
-              here, Sync from Meta, or wait until a submitted template is
-              Approved.
+              Only Meta-approved templates appear here.{" "}
+              <Link href="/templates" className="text-primary underline-offset-2 hover:underline">
+                Open Templates
+              </Link>{" "}
+              to create or sync — wait until status is Approved.
             </p>
           ) : null}
         </div>
@@ -284,6 +332,13 @@ export default function NewBroadcastPage() {
         {bodyParams.length > 0 ? (
           <div className="space-y-2">
             <Label>Body variables</Label>
+            <p className="text-xs text-muted-foreground">
+              Use fixed text, or merge fields{" "}
+              <code className="rounded bg-muted px-1">{"{{contact.name}}"}</code>{" "}
+              /{" "}
+              <code className="rounded bg-muted px-1">{"{{contact.phone}}"}</code>
+              .
+            </p>
             <div className="space-y-2">
               {bodyParams.map((v, i) => (
                 <Input
@@ -294,47 +349,74 @@ export default function NewBroadcastPage() {
                     next[i] = e.target.value;
                     setBodyParams(next);
                   }}
-                  placeholder={`{{${i + 1}}}`}
+                  placeholder={`{{${i + 1}}} or {{contact.name}}`}
                 />
               ))}
             </div>
           </div>
         ) : null}
 
-        <div className="space-y-2">
-          <Label>Audience tags (any match)</Label>
-          {tags.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Create tags on Customers first, then assign them to contacts.
-            </p>
-          ) : (
-            <ul className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border p-3">
-              {tags.map((tag) => {
-                const checked = selectedTagIds.includes(tag.id);
-                return (
-                  <li key={tag.id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`tag-${tag.id}`}
-                      checked={checked}
-                      onCheckedChange={(v) => {
-                        setSelectedTagIds((prev) =>
-                          v
-                            ? [...prev, tag.id]
-                            : prev.filter((id) => id !== tag.id),
-                        );
-                      }}
-                    />
-                    <label
-                      htmlFor={`tag-${tag.id}`}
-                      className="text-sm leading-none"
-                    >
-                      {tag.name}
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+        <div className="space-y-3">
+          <Label>Audience</Label>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={audienceMode === "all" ? "default" : "outline"}
+              onClick={() => setAudienceMode("all")}
+            >
+              All customers
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={audienceMode === "tags" ? "default" : "outline"}
+              onClick={() => setAudienceMode("tags")}
+            >
+              By tags
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {previewing
+              ? "Counting recipients…"
+              : previewCount === null
+                ? "—"
+                : `${previewCount} recipient${previewCount === 1 ? "" : "s"}`}
+          </p>
+          {audienceMode === "tags" ? (
+            tags.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Create tags on Customers first, then assign them to contacts.
+              </p>
+            ) : (
+              <ul className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border p-3">
+                {tags.map((tag) => {
+                  const checked = selectedTagIds.includes(tag.id);
+                  return (
+                    <li key={tag.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`tag-${tag.id}`}
+                        checked={checked}
+                        onCheckedChange={(v) => {
+                          setSelectedTagIds((prev) =>
+                            v
+                              ? [...prev, tag.id]
+                              : prev.filter((id) => id !== tag.id),
+                          );
+                        }}
+                      />
+                      <label
+                        htmlFor={`tag-${tag.id}`}
+                        className="text-sm leading-none"
+                      >
+                        {tag.name}
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )
+          ) : null}
         </div>
 
         <div className="space-y-2">
