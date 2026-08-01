@@ -139,13 +139,19 @@ export function WhatsAppConfig() {
           const res = await fetch('/api/whatsapp/config', { method: 'GET' });
           const payload = await res.json();
 
-          if (payload.connected) {
+          if (payload.live) {
             setConnectionStatus('connected');
             setResetReason(null);
             setStatusMessage('');
           } else {
             setConnectionStatus('disconnected');
-            setResetReason(payload.needs_reset ? 'token_corrupted' : payload.reason === 'meta_api_error' ? 'meta_api_error' : null);
+            setResetReason(
+              payload.needs_reset
+                ? 'token_corrupted'
+                : payload.reason === 'meta_api_error'
+                  ? 'meta_api_error'
+                  : null,
+            );
             setStatusMessage(payload.message || '');
           }
         } catch (err) {
@@ -211,15 +217,13 @@ export function WhatsAppConfig() {
 
       if (tokenEdited && accessToken !== MASKED_TOKEN && accessToken.trim()) {
         payload.access_token = accessToken.trim();
-      } else if (config) {
-        // Existing config — reuse stored encrypted token by decrypting on the
-        // server. But our POST handler requires an access_token to verify
-        // with Meta. If the user didn't change the token, we need to signal
-        // that. Simplest: require token re-entry if they're updating.
-        toast.error('Please re-enter the Access Token to save changes');
+      } else if (!config) {
+        toast.error('Paste a permanent System User access token to connect');
         setSaving(false);
         return;
       }
+      // Existing config without a new token: server reuses the stored
+      // encrypted token (e.g. PIN-only registration).
 
       const res = await fetch('/api/whatsapp/config', {
         method: 'POST',
@@ -283,7 +287,7 @@ export function WhatsAppConfig() {
       const res = await fetch('/api/whatsapp/config', { method: 'GET' });
       const payload = await res.json();
 
-      if (payload.connected) {
+      if (payload.live) {
         setConnectionStatus('connected');
         setResetReason(null);
         setStatusMessage('');
@@ -431,25 +435,51 @@ export function WhatsAppConfig() {
           </Alert>
         )}
 
+        {/* Expired / revoked token — force permanent System User token */}
+        {resetReason === 'meta_api_error' && (
+          <Alert className="border-red-600/40 bg-red-950/30">
+            <div className="flex items-start gap-3">
+              <XCircle className="mt-0.5 size-5 shrink-0 text-red-400" />
+              <div className="space-y-2 text-sm">
+                <AlertTitle className="mb-0 text-red-100">
+                  {t('notConnected')}
+                </AlertTitle>
+                <AlertDescription className="text-red-100/85">
+                  {statusMessage || t('tokenExpiredGuide')}
+                </AlertDescription>
+                <ol className="list-decimal space-y-1 pl-4 text-red-50/90">
+                  <li>{t('tokenStep1')}</li>
+                  <li>{t('tokenStep2')}</li>
+                  <li>{t('tokenStep3')}</li>
+                  <li>{t('tokenStep4')}</li>
+                </ol>
+                <p className="text-xs text-red-100/70">{t('tokenNeverExpireNote')}</p>
+              </div>
+            </div>
+          </Alert>
+        )}
+
         {/* Connection Status */}
-        <Alert className="bg-card border-border">
-          <div className="flex items-center gap-2">
-            {connectionStatus === 'connected' ? (
-              <CheckCircle2 className="size-4 text-primary" />
-            ) : (
-              <XCircle className="size-4 text-red-500" />
-            )}
-            <AlertTitle className="text-foreground mb-0">
-              {connectionStatus === 'connected' ? t('credentialsValid') : t('notConnected')}
-            </AlertTitle>
-          </div>
-          <AlertDescription className="text-muted-foreground">
-            {connectionStatus === 'connected'
-              ? t('connectedDesc')
-              : statusMessage ||
-                t('notConnectedDesc')}
-          </AlertDescription>
-        </Alert>
+        {resetReason !== 'meta_api_error' && (
+          <Alert className="bg-card border-border">
+            <div className="flex items-center gap-2">
+              {connectionStatus === 'connected' ? (
+                <CheckCircle2 className="size-4 text-primary" />
+              ) : (
+                <XCircle className="size-4 text-red-500" />
+              )}
+              <AlertTitle className="text-foreground mb-0">
+                {connectionStatus === 'connected' ? t('credentialsValid') : t('notConnected')}
+              </AlertTitle>
+            </div>
+            <AlertDescription className="text-muted-foreground">
+              {connectionStatus === 'connected'
+                ? t('connectedDesc')
+                : statusMessage ||
+                  t('notConnectedDesc')}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Registration Status — the "is it actually live?" check.
             Credentials being valid is necessary but not sufficient;
