@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Plus, Star, Trash2 } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,17 +27,29 @@ type WaNumber = {
   connected_at: string | null;
 };
 
+type MetaAvailable = {
+  phone_number_id: string;
+  display_phone_number: string | null;
+  verified_name: string | null;
+  quality_rating: string | null;
+  already_linked: boolean;
+};
+
 export function MultiNumbersPanel() {
   const [numbers, setNumbers] = useState<WaNumber[] | null>(null);
+  const [available, setAvailable] = useState<MetaAvailable[] | null>(null);
+  const [availableError, setAvailableError] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [phoneNumberId, setPhoneNumberId] = useState("");
-  const [label, setLabel] = useState("");
-  const [employeeId, setEmployeeId] = useState("");
+  const [defaultEmployeeId, setDefaultEmployeeId] = useState("");
   const [pin, setPin] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [addingId, setAddingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loadingMeta, setLoadingMeta] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [manualPhoneId, setManualPhoneId] = useState("");
+  const [manualLabel, setManualLabel] = useState("");
 
-  const load = useCallback(async () => {
+  const loadLinked = useCallback(async () => {
     const [numRes, empRes] = await Promise.all([
       fetch("/api/whatsapp/numbers", { cache: "no-store" }),
       fetch("/api/employees", { cache: "no-store" }),
@@ -55,24 +67,44 @@ export function MultiNumbersPanel() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  async function addNumber() {
-    if (!phoneNumberId.trim()) {
-      toast.error("Phone number ID is required");
-      return;
-    }
-    setSaving(true);
+  const loadAvailable = useCallback(async () => {
+    setLoadingMeta(true);
+    setAvailableError(null);
     try {
+      const res = await fetch("/api/whatsapp/numbers/available", {
+        cache: "no-store",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAvailable([]);
+        setAvailableError(body.error || "Could not load numbers from Meta");
+        return;
+      }
+      setAvailable((body.numbers ?? []) as MetaAvailable[]);
+    } finally {
+      setLoadingMeta(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLinked();
+    void loadAvailable();
+  }, [loadLinked, loadAvailable]);
+
+  async function addFromMeta(n: MetaAvailable) {
+    setAddingId(n.phone_number_id);
+    try {
+      const label =
+        n.verified_name ||
+        n.display_phone_number ||
+        undefined;
       const res = await fetch("/api/whatsapp/numbers", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          phone_number_id: phoneNumberId.trim(),
-          label: label.trim() || undefined,
-          employee_id: employeeId || undefined,
+          phone_number_id: n.phone_number_id,
+          label,
+          employee_id: defaultEmployeeId || undefined,
           pin: pin.trim() || undefined,
         }),
       });
@@ -83,18 +115,48 @@ export function MultiNumbersPanel() {
       }
       if (body.registration_error) {
         toast.warning(
-          `Number saved, but Meta registration needs attention: ${body.registration_error}`,
+          `Added — Meta registration may need a PIN: ${body.registration_error}`,
         );
       } else {
-        toast.success("Meta number added");
+        toast.success(
+          label ? `Added ${label}` : "Number added to this workspace",
+        );
       }
-      setPhoneNumberId("");
-      setLabel("");
-      setEmployeeId("");
-      setPin("");
-      await load();
+      await Promise.all([loadLinked(), loadAvailable()]);
     } finally {
-      setSaving(false);
+      setAddingId(null);
+    }
+  }
+
+  async function addManual() {
+    if (!manualPhoneId.trim()) {
+      toast.error("Phone number ID is required");
+      return;
+    }
+    setAddingId("manual");
+    try {
+      const res = await fetch("/api/whatsapp/numbers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          phone_number_id: manualPhoneId.trim(),
+          label: manualLabel.trim() || undefined,
+          employee_id: defaultEmployeeId || undefined,
+          pin: pin.trim() || undefined,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body.error || "Could not add number");
+        return;
+      }
+      toast.success("Number added");
+      setManualPhoneId("");
+      setManualLabel("");
+      setShowManual(false);
+      await Promise.all([loadLinked(), loadAvailable()]);
+    } finally {
+      setAddingId(null);
     }
   }
 
@@ -112,7 +174,7 @@ export function MultiNumbersPanel() {
         return;
       }
       toast.success("Primary number updated");
-      await load();
+      await loadLinked();
     } finally {
       setBusyId(null);
     }
@@ -133,7 +195,7 @@ export function MultiNumbersPanel() {
         toast.error(body.error || "Could not update link");
         return;
       }
-      await load();
+      await loadLinked();
     } finally {
       setBusyId(null);
     }
@@ -152,7 +214,7 @@ export function MultiNumbersPanel() {
         return;
       }
       toast.success("Number removed");
-      await load();
+      await Promise.all([loadLinked(), loadAvailable()]);
     } finally {
       setBusyId(null);
     }
@@ -166,17 +228,18 @@ export function MultiNumbersPanel() {
     );
   }
 
+  const unlinked = (available ?? []).filter((n) => !n.already_linked);
+
   return (
     <Card className="vsmart-shape border-border shadow-sm">
       <CardHeader>
         <CardTitle className="font-heading text-lg">Company Meta numbers</CardTitle>
         <CardDescription>
-          Automations and inbox run on these Cloud API lines — not personal
-          WhatsApp. Add each Phone number ID from the same WABA; the primary
-          System User token is reused.
+          Pick a line from your WhatsApp Business Account — one click adds it.
+          These are Cloud API numbers, not personal WhatsApp.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-6">
         <ul className="space-y-3">
           {numbers.map((n) => (
             <li
@@ -196,9 +259,6 @@ export function MultiNumbersPanel() {
                   </p>
                   <p className="truncate font-mono text-xs text-muted-foreground">
                     {n.phone_number_id}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Status · {n.status}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1">
@@ -249,76 +309,164 @@ export function MultiNumbersPanel() {
         </ul>
 
         <div className="space-y-3 border-t border-border pt-4">
-          <p className="font-heading text-sm font-semibold">Add another Meta line</p>
-          <p className="text-xs text-muted-foreground">
-            In Meta WhatsApp Manager → Phone numbers → copy the Phone number ID
-            for a Cloud API number already under your WABA.
-          </p>
-          <div className="space-y-2">
-            <Label htmlFor="add-phone-id">Phone number ID</Label>
-            <Input
-              id="add-phone-id"
-              value={phoneNumberId}
-              onChange={(e) => setPhoneNumberId(e.target.value)}
-              placeholder="e.g. 109876543210987"
-              autoComplete="off"
-              className="rounded-xl"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="add-label">Label (optional)</Label>
-            <Input
-              id="add-label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Sales, Support…"
-              autoComplete="off"
-              className="rounded-xl"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="add-employee">Link employee (optional)</Label>
-            <select
-              id="add-employee"
-              className="flex h-9 w-full rounded-xl border border-input bg-background px-2 text-sm"
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-heading text-sm font-semibold">
+              Add from your Meta account
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="rounded-lg"
+              disabled={loadingMeta}
+              onClick={() => void loadAvailable()}
             >
-              <option value="">None</option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </select>
+              <RefreshCw
+                className={`mr-1.5 h-3.5 w-3.5 ${loadingMeta ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="add-pin">2FA PIN (optional, 6 digits)</Label>
+
+          {employees.length > 0 ? (
+            <div className="space-y-1">
+              <Label className="text-xs">
+                Link new lines to employee (optional)
+              </Label>
+              <select
+                className="flex h-9 w-full rounded-xl border border-input bg-background px-2 text-sm"
+                value={defaultEmployeeId}
+                onChange={(e) => setDefaultEmployeeId(e.target.value)}
+              >
+                <option value="">None</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          <div className="space-y-1">
+            <Label htmlFor="add-pin" className="text-xs">
+              2FA PIN for production lines (optional)
+            </Label>
             <Input
               id="add-pin"
               value={pin}
               onChange={(e) =>
                 setPin(e.target.value.replace(/\D/g, "").slice(0, 6))
               }
-              placeholder="Production /register only"
+              placeholder="Only if Meta asks for two-step PIN"
               inputMode="numeric"
               autoComplete="off"
               className="rounded-xl"
             />
           </div>
-          <Button
+
+          {loadingMeta && available === null ? (
+            <div className="flex justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : availableError ? (
+            <p className="rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">
+              {availableError}
+            </p>
+          ) : unlinked.length === 0 ? (
+            <div className="space-y-2 rounded-xl bg-muted/60 p-3 text-sm text-muted-foreground">
+              <p>
+                {(available ?? []).length === 0
+                  ? "No phone numbers found on this WhatsApp Business Account yet."
+                  : "Every Meta line on this account is already linked here."}
+              </p>
+              <p className="text-xs">
+                To get another line: create it once in{" "}
+                <a
+                  href="https://business.facebook.com/latest/whatsapp_manager/phone_numbers"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  Meta WhatsApp Manager
+                </a>
+                , then tap Refresh — it will show up here to add in one click.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {unlinked.map((n) => (
+                <li
+                  key={n.phone_number_id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">
+                      {n.verified_name || "WhatsApp Business"}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {n.display_phone_number || n.phone_number_id}
+                      {n.quality_rating
+                        ? ` · Quality ${n.quality_rating}`
+                        : null}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl shrink-0"
+                    disabled={addingId === n.phone_number_id}
+                    onClick={() => void addFromMeta(n)}
+                  >
+                    {addingId === n.phone_number_id ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Add
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <button
             type="button"
-            className="w-full rounded-xl"
-            disabled={saving}
-            onClick={() => void addNumber()}
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+            onClick={() => setShowManual((v) => !v)}
           >
-            {saving ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="mr-2 h-4 w-4" />
-            )}
-            Add Meta number
-          </Button>
+            {showManual ? "Hide manual ID entry" : "Add by Phone number ID instead"}
+          </button>
+
+          {showManual ? (
+            <div className="space-y-2 rounded-xl border border-dashed border-border p-3">
+              <Input
+                value={manualPhoneId}
+                onChange={(e) => setManualPhoneId(e.target.value)}
+                placeholder="Phone number ID"
+                className="rounded-xl"
+                autoComplete="off"
+              />
+              <Input
+                value={manualLabel}
+                onChange={(e) => setManualLabel(e.target.value)}
+                placeholder="Label (optional)"
+                className="rounded-xl"
+                autoComplete="off"
+              />
+              <Button
+                type="button"
+                className="w-full rounded-xl"
+                disabled={addingId === "manual"}
+                onClick={() => void addManual()}
+              >
+                {addingId === "manual" ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Add by ID
+              </Button>
+            </div>
+          ) : null}
         </div>
       </CardContent>
     </Card>

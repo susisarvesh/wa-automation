@@ -65,6 +65,30 @@ export async function verifyPhoneNumber(
   return response.json()
 }
 
+export interface ListWabaPhoneNumbersArgs {
+  wabaId: string
+  accessToken: string
+}
+
+/**
+ * List Cloud API phone numbers under a WhatsApp Business Account.
+ * GET /{waba-id}/phone_numbers
+ */
+export async function listWabaPhoneNumbers(
+  args: ListWabaPhoneNumbersArgs
+): Promise<MetaPhoneInfo[]> {
+  const { wabaId, accessToken } = args
+  const url = `${META_API_BASE}/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating&limit=100`
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = (await response.json()) as { data?: MetaPhoneInfo[] }
+  return data.data ?? []
+}
+
 // ============================================================
 // Cloud API registration (subscription for inbound webhooks)
 // ============================================================
