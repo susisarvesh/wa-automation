@@ -24,14 +24,35 @@ export interface MetaPhoneInfo {
 }
 
 interface MetaErrorResponse {
-  error?: { message?: string; code?: number; type?: string }
+  error?: {
+    message?: string
+    code?: number
+    type?: string
+    error_subcode?: number
+    error_user_title?: string
+    error_user_msg?: string
+    error_data?: { details?: string }
+  }
 }
 
 async function throwMetaError(response: Response, fallback: string): Promise<never> {
   let message = fallback
   try {
     const data = (await response.json()) as MetaErrorResponse
-    if (data.error?.message) message = data.error.message
+    const err = data.error
+    if (err) {
+      const parts = [
+        err.error_user_msg,
+        err.error_user_title,
+        err.error_data?.details,
+        err.message,
+      ].filter((p): p is string => Boolean(p && String(p).trim()))
+      // Prefer the most specific user-facing Meta text; keep code for matching.
+      const primary = parts[0] ?? fallback
+      const codeHint =
+        err.code != null ? ` (#${err.code}${err.error_subcode != null ? `/${err.error_subcode}` : ''})` : ''
+      message = `${primary}${codeHint}`
+    }
   } catch {
     // response body wasn't JSON — keep the fallback
   }
@@ -94,8 +115,13 @@ export interface CreateWabaPhoneNumberArgs {
   accessToken: string
   /** Country calling code digits, e.g. "91". */
   cc: string
-  /** National number without country code / trunk 0. */
+  /**
+   * National significant number (no country code). Meta’s Graph reference
+   * requires this form; some docs show E.164 digits — we send national.
+   */
   phoneNumber: string
+  /** Full E.164 digits without +, used as fallback if national form is rejected. */
+  e164Digits?: string
   verifiedName: string
 }
 
@@ -106,24 +132,46 @@ export interface CreateWabaPhoneNumberArgs {
 export async function createWabaPhoneNumber(
   args: CreateWabaPhoneNumberArgs
 ): Promise<MetaPhoneInfo> {
-  const { wabaId, accessToken, cc, phoneNumber, verifiedName } = args
+  const { wabaId, accessToken, cc, phoneNumber, e164Digits, verifiedName } = args
   const url = `${META_API_BASE}/${wabaId}/phone_numbers`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      cc,
-      phone_number: phoneNumber,
-      verified_name: verifiedName,
-    }),
-  })
-  if (!response.ok) {
-    await throwMetaError(response, `Meta API error: ${response.status}`)
+
+  const attempts: Array<{ cc: string; phone_number: string }> = [
+    { cc, phone_number: phoneNumber },
+  ]
+  // Official register docs example uses full international digits in
+  // phone_number alongside cc (e.g. cc=1, phone_number=14195551518).
+  if (e164Digits && e164Digits !== phoneNumber) {
+    attempts.push({ cc, phone_number: e164Digits })
   }
-  return response.json()
+
+  let lastError: Error | null = null
+  for (const body of attempts) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        ...body,
+        verified_name: verifiedName,
+      }),
+    })
+    if (response.ok) {
+      return response.json()
+    }
+    try {
+      await throwMetaError(response, `Meta API error: ${response.status}`)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      const msg = lastError.message.toLowerCase()
+      // Only retry alternate format on generic invalid-parameter failures.
+      if (!msg.includes('invalid parameter') && !msg.includes('(#100)')) {
+        throw lastError
+      }
+    }
+  }
+  throw lastError ?? new Error('Meta API error: create phone number failed')
 }
 
 export interface RequestPhoneVerificationCodeArgs {
@@ -144,7 +192,8 @@ export async function requestPhoneVerificationCode(
     phoneNumberId,
     accessToken,
     codeMethod = 'SMS',
-    language = 'en_US',
+    // Meta docs: two-character language code (e.g. "en"). "en_US" → (#100).
+    language = 'en',
   } = args
   const url = `${META_API_BASE}/${phoneNumberId}/request_code`
   const response = await fetch(url, {

@@ -84,8 +84,34 @@ export async function POST(request: Request, { params }: Params) {
 
   const verifiedName =
     typeof body.verified_name === "string" && body.verified_name.trim()
-      ? body.verified_name.trim().slice(0, 125)
-      : (employee.name as string).slice(0, 125);
+      ? body.verified_name.trim().slice(0, 75)
+      : (employee.name as string).slice(0, 75);
+
+  if (verifiedName.length < 2) {
+    return NextResponse.json(
+      { error: "WhatsApp display name must be at least 2 characters" },
+      { status: 400 },
+    );
+  }
+
+  // Common mistake: +94… is Sri Lanka; Indian mobiles are +91 + 10 digits.
+  if (parts.cc === "91" && parts.nationalNumber.length !== 10) {
+    return NextResponse.json(
+      {
+        error: `Indian numbers need +91 and exactly 10 digits after it (got ${parts.nationalNumber.length}).`,
+      },
+      { status: 400 },
+    );
+  }
+  if (parts.cc === "94" && !/^7\d{8}$/.test(parts.nationalNumber)) {
+    return NextResponse.json(
+      {
+        error:
+          "This looks like +94 (Sri Lanka). Sri Lankan mobiles are usually +94 7XXXXXXXX. If this is an Indian number, use +91 and 10 digits (e.g. +919790985447).",
+      },
+      { status: 400 },
+    );
+  }
 
   const { data: existingForEmployee } = await admin
     .from("whatsapp_config")
@@ -121,6 +147,7 @@ export async function POST(request: Request, { params }: Params) {
           accessToken,
           cc: parts.cc,
           phoneNumber: parts.nationalNumber,
+          e164Digits: parts.e164Digits,
           verifiedName,
         });
         phoneNumberId = created.id;

@@ -20,11 +20,18 @@ export function humanizeMetaError(raw: string | undefined | null): string {
 
   if (
     lower.includes("unsupported get request") ||
-    lower.includes("does not exist") ||
-    lower.includes("phone number id") ||
-    lower.includes("(#100)")
+    (lower.includes("does not exist") && lower.includes("phone"))
   ) {
     return "Wrong Phone number ID — copy it again from Meta → WhatsApp → API Setup.";
+  }
+
+  if (
+    lower.includes("invalid parameter") ||
+    lower.includes("(#100)") ||
+    lower.includes("(#131009)") ||
+    lower.includes("parameter value is not valid")
+  ) {
+    return "Meta rejected this phone or display name. Use a full international number that can receive SMS (not personal WhatsApp), and a real business display name (e.g. “Ma Store”, not a single letter). For India use +91…";
   }
 
   if (

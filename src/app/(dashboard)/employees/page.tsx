@@ -118,8 +118,14 @@ export default function EmployeesPage() {
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(body.error || "Could not start WhatsApp setup");
-        if (body.tip) toast.message(body.tip, { duration: 7000 });
+        toast.error(body.error || "Could not start WhatsApp setup", {
+          duration: 10000,
+        });
+        if (body.detail && body.detail !== body.error) {
+          toast.message(String(body.detail).slice(0, 200), { duration: 8000 });
+        } else if (body.tip) {
+          toast.message(body.tip, { duration: 7000 });
+        }
         return;
       }
       setDisplayHint(
