@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Loader2, Plus, Send, Sparkles, Trash2, Users } from "lucide-react";
+import {
+  Loader2,
+  MessageSquare,
+  Plus,
+  Send,
+  Sparkles,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
   AccessLockedPanel,
@@ -13,8 +21,18 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { Employee } from "@/types";
+
+type WizardStep = "confirm" | "otp";
 
 export default function EmployeesPage() {
   const { isAccessApproved, loading: authLoading, canEditSettings } = useAuth();
@@ -27,7 +45,15 @@ export default function EmployeesPage() {
   const [testBusy, setTestBusy] = useState(false);
   const [testTo, setTestTo] = useState("");
   const [businessNumber, setBusinessNumber] = useState<string | null>(null);
-  const [howToTest, setHowToTest] = useState<string | null>(null);
+  const [companyConnected, setCompanyConnected] = useState(false);
+
+  const [wizardEmp, setWizardEmp] = useState<Employee | null>(null);
+  const [wizardStep, setWizardStep] = useState<WizardStep>("confirm");
+  const [verifiedName, setVerifiedName] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [pin, setPin] = useState("");
+  const [wizardBusy, setWizardBusy] = useState(false);
+  const [displayHint, setDisplayHint] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/employees", { cache: "no-store" });
@@ -44,6 +70,7 @@ export default function EmployeesPage() {
     try {
       const res = await fetch("/api/whatsapp/config", { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
+      setCompanyConnected(Boolean(body.configured || body.phone_number_id));
       if (body.phone_info?.display_phone_number) {
         setBusinessNumber(String(body.phone_info.display_phone_number));
       } else if (body.phone_number_id) {
@@ -60,6 +87,99 @@ export default function EmployeesPage() {
       void loadBusinessNumber();
     }
   }, [authLoading, isAccessApproved, load, loadBusinessNumber]);
+
+  function openWizard(emp: Employee) {
+    setWizardEmp(emp);
+    setVerifiedName(emp.name);
+    setOtpCode("");
+    setPin("");
+    setDisplayHint(null);
+    setWizardStep(
+      emp.whatsapp?.status === "pending_verification" ? "otp" : "confirm",
+    );
+  }
+
+  function closeWizard() {
+    setWizardEmp(null);
+    setWizardBusy(false);
+  }
+
+  async function startWhatsApp() {
+    if (!wizardEmp) return;
+    setWizardBusy(true);
+    try {
+      const res = await fetch(
+        `/api/employees/${wizardEmp.id}/whatsapp/start`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ verified_name: verifiedName.trim() }),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body.error || "Could not start WhatsApp setup");
+        if (body.tip) toast.message(body.tip, { duration: 7000 });
+        return;
+      }
+      setDisplayHint(
+        typeof body.display_hint === "string" ? body.display_hint : null,
+      );
+      setWizardStep("otp");
+      toast.success(body.message || "SMS code sent");
+      await load();
+    } finally {
+      setWizardBusy(false);
+    }
+  }
+
+  async function resendCode() {
+    if (!wizardEmp) return;
+    setWizardBusy(true);
+    try {
+      const res = await fetch(
+        `/api/employees/${wizardEmp.id}/whatsapp/resend-code`,
+        { method: "POST" },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body.error || "Could not resend code");
+        return;
+      }
+      toast.success(body.message || "Code resent");
+    } finally {
+      setWizardBusy(false);
+    }
+  }
+
+  async function verifyWhatsApp() {
+    if (!wizardEmp) return;
+    setWizardBusy(true);
+    try {
+      const res = await fetch(
+        `/api/employees/${wizardEmp.id}/whatsapp/verify`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: otpCode.trim(), pin: pin.trim() }),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body.error || "Verification failed");
+        return;
+      }
+      toast.success(body.message || "WhatsApp connected");
+      if (body.how_to_test) toast.message(body.how_to_test, { duration: 8000 });
+      if (body.display_phone_number) {
+        setTestTo((prev) => prev || wizardEmp.phone);
+      }
+      closeWizard();
+      await load();
+    } finally {
+      setWizardBusy(false);
+    }
+  }
 
   async function addEmployee() {
     if (!name.trim() || !phone.trim()) {
@@ -82,11 +202,12 @@ export default function EmployeesPage() {
         toast.error(body.error || "Could not add employee");
         return;
       }
-      toast.success("Employee added");
+      toast.success("Employee added — enable WhatsApp when ready");
       setName("");
       setPhone("");
       setEmail("");
       await load();
+      if (body.employee) openWizard(body.employee as Employee);
     } finally {
       setSaving(false);
     }
@@ -136,11 +257,8 @@ export default function EmployeesPage() {
         return;
       }
       if (body.business_number) setBusinessNumber(String(body.business_number));
-      if (body.how_to_test) setHowToTest(String(body.how_to_test));
       toast.success(body.message || "Automations ready");
-      if (body.how_to_test) {
-        toast.message(body.how_to_test, { duration: 8000 });
-      }
+      if (body.how_to_test) toast.message(body.how_to_test, { duration: 8000 });
     } finally {
       setSetupBusy(false);
     }
@@ -149,7 +267,7 @@ export default function EmployeesPage() {
   async function runTest() {
     const to = testTo.trim() || employees?.[0]?.phone || "";
     if (!to) {
-      toast.error("Enter your personal phone to receive the test reply");
+      toast.error("Enter a phone to receive the test reply");
       return;
     }
     setTestBusy(true);
@@ -164,12 +282,33 @@ export default function EmployeesPage() {
         toast.error(body.error || "Test failed");
         return;
       }
-      if (body.business_number) setBusinessNumber(String(body.business_number));
       toast.success(body.message || "Test sent — check WhatsApp");
-      if (body.tip) toast.message(body.tip, { duration: 8000 });
     } finally {
       setTestBusy(false);
     }
+  }
+
+  function statusChip(emp: Employee) {
+    const st = emp.whatsapp?.status;
+    if (st === "connected") {
+      return (
+        <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+          WhatsApp connected
+        </span>
+      );
+    }
+    if (st === "pending_verification") {
+      return (
+        <span className="rounded-md bg-brand-orange-soft px-2 py-0.5 text-xs font-medium text-brand-orange">
+          Awaiting SMS code
+        </span>
+      );
+    }
+    return (
+      <span className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+        No WhatsApp line
+      </span>
+    );
   }
 
   if (authLoading) {
@@ -200,11 +339,8 @@ export default function EmployeesPage() {
             Employees
           </h1>
           <p className="text-sm text-muted-foreground">
-            Staff directory for inbox assignment. Automations always run on your{" "}
-            <span className="font-medium text-foreground">
-              company Meta WhatsApp number
-            </span>
-            — not on an employee&apos;s personal phone.
+            Add a teammate, then enable WhatsApp with an SMS code — no Meta
+            Manager or Phone number ID paste.
           </p>
         </div>
         {canEditSettings ? (
@@ -225,41 +361,33 @@ export default function EmployeesPage() {
         ) : null}
       </div>
 
-      <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm space-y-2">
-        <p className="font-medium text-foreground">How auto-reply works</p>
-        <ol className="list-decimal space-y-1 pl-4 text-muted-foreground">
+      <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-4 text-sm">
+        <p className="font-medium text-foreground">WhatsApp for employees</p>
+        <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
           <li>
-            Customer WhatsApps your company number
+            Connect your company WABA once on{" "}
+            <Link href="/connect" className="underline underline-offset-2">
+              Connect
+            </Link>
             {businessNumber ? (
               <>
-                :{" "}
-                <span className="font-medium text-foreground">
-                  {businessNumber}
-                </span>
-              </>
-            ) : (
-              <>
                 {" "}
-                (see{" "}
-                <Link href="/connect" className="underline underline-offset-2">
-                  Connect
-                </Link>
-                )
+                (primary ·{" "}
+                <span className="text-foreground">{businessNumber}</span>)
               </>
-            )}
+            ) : null}
+            .
           </li>
           <li>
-            They send <span className="text-foreground">Hi</span> (or services /
-            pricing) → automation replies.
+            Employee numbers must receive SMS and usually{" "}
+            <span className="text-foreground">cannot</span> already be on
+            personal WhatsApp.
           </li>
           <li>
-            Messaging an employee&apos;s personal number will{" "}
-            <span className="text-foreground">not</span> trigger this app.
+            After OTP, customers message that business line; automations reply
+            on it.
           </li>
-        </ol>
-        {howToTest ? (
-          <p className="text-xs text-muted-foreground pt-1">{howToTest}</p>
-        ) : null}
+        </ul>
         {canEditSettings ? (
           <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-end">
             <div className="flex-1 space-y-1">
@@ -289,17 +417,6 @@ export default function EmployeesPage() {
             </Button>
           </div>
         ) : null}
-        {!businessNumber ? (
-          <Link
-            href="/connect"
-            className={cn(
-              buttonVariants({ variant: "link", size: "sm" }),
-              "h-auto px-0",
-            )}
-          >
-            Connect company WhatsApp first →
-          </Link>
-        ) : null}
       </div>
 
       {canEditSettings ? (
@@ -316,7 +433,7 @@ export default function EmployeesPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="emp-phone">Phone (personal contact)</Label>
+              <Label htmlFor="emp-phone">Phone (SMS-capable)</Label>
               <Input
                 id="emp-phone"
                 value={phone}
@@ -355,7 +472,7 @@ export default function EmployeesPage() {
             <Users className="h-5 w-5 text-muted-foreground" />
           </div>
           <p className="text-sm text-muted-foreground">
-            No employees yet. Add your team so Inbox can assign conversations.
+            No employees yet. Add a teammate to enable WhatsApp with SMS.
           </p>
         </div>
       ) : (
@@ -363,18 +480,44 @@ export default function EmployeesPage() {
           {employees.map((emp) => (
             <li
               key={emp.id}
-              className="flex items-center justify-between gap-3 py-4"
+              className="flex flex-wrap items-center justify-between gap-3 py-4"
             >
-              <div className="min-w-0">
-                <p className="truncate font-medium">{emp.name}</p>
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate font-medium">{emp.name}</p>
+                  {statusChip(emp)}
+                </div>
                 <p className="truncate text-xs text-muted-foreground">
                   {emp.phone}
                   {emp.email ? ` · ${emp.email}` : ""}
                 </p>
+                {emp.whatsapp?.last_registration_error ? (
+                  <p className="text-xs text-destructive">
+                    {emp.whatsapp.last_registration_error.slice(0, 160)}
+                  </p>
+                ) : null}
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 {canEditSettings ? (
                   <>
+                    <Button
+                      size="sm"
+                      variant={
+                        emp.whatsapp?.status === "connected"
+                          ? "outline"
+                          : "default"
+                      }
+                      className="rounded-lg gap-1.5"
+                      disabled={!companyConnected || !emp.is_active}
+                      onClick={() => openWizard(emp)}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      {emp.whatsapp?.status === "connected"
+                        ? "WhatsApp"
+                        : emp.whatsapp?.status === "pending_verification"
+                          ? "Enter SMS code"
+                          : "Enable WhatsApp"}
+                    </Button>
                     <div className="flex items-center gap-2">
                       <Switch
                         checked={emp.is_active}
@@ -405,6 +548,139 @@ export default function EmployeesPage() {
           ))}
         </ul>
       )}
+
+      {!companyConnected && canEditSettings ? (
+        <Link
+          href="/connect"
+          className={cn(buttonVariants({ variant: "link" }), "px-0")}
+        >
+          Connect company WhatsApp first →
+        </Link>
+      ) : null}
+
+      <Dialog
+        open={Boolean(wizardEmp)}
+        onOpenChange={(open) => {
+          if (!open) closeWizard();
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>
+              {wizardStep === "confirm"
+                ? `Enable WhatsApp for ${wizardEmp?.name ?? ""}`
+                : "Enter SMS code"}
+            </DialogTitle>
+            <DialogDescription>
+              {wizardStep === "confirm"
+                ? "Meta will text a code to this number. It must receive SMS and usually cannot already be on personal WhatsApp."
+                : `Code sent to ${wizardEmp?.phone ?? "the phone"}${
+                    displayHint ? ` (${displayHint})` : ""
+                  }. Choose a 6-digit PIN you will remember.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {wizardStep === "confirm" ? (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Phone</Label>
+                <Input value={wizardEmp?.phone ?? ""} disabled className="rounded-xl" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="verified-name">WhatsApp display name</Label>
+                <Input
+                  id="verified-name"
+                  value={verifiedName}
+                  onChange={(e) => setVerifiedName(e.target.value)}
+                  className="rounded-xl"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="otp">SMS verification code</Label>
+                <Input
+                  id="otp"
+                  value={otpCode}
+                  onChange={(e) =>
+                    setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 8))
+                  }
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="rounded-xl"
+                  placeholder="123456"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="pin">Two-step PIN (6 digits)</Label>
+                <Input
+                  id="pin"
+                  value={pin}
+                  onChange={(e) =>
+                    setPin(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  inputMode="numeric"
+                  className="rounded-xl"
+                  placeholder="Choose & save this PIN"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Meta requires this PIN to register the number for Cloud API.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            {wizardStep === "otp" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={wizardBusy}
+                onClick={() => void resendCode()}
+              >
+                Resend SMS
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={wizardBusy}
+                onClick={closeWizard}
+              >
+                Cancel
+              </Button>
+              {wizardStep === "confirm" ? (
+                <Button
+                  type="button"
+                  disabled={wizardBusy || !verifiedName.trim()}
+                  onClick={() => void startWhatsApp()}
+                >
+                  {wizardBusy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Send SMS code
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  disabled={wizardBusy || otpCode.length < 4 || pin.length !== 6}
+                  onClick={() => void verifyWhatsApp()}
+                >
+                  {wizardBusy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Verify &amp; activate
+                </Button>
+              )}
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

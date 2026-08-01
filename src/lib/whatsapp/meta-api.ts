@@ -89,6 +89,108 @@ export async function listWabaPhoneNumbers(
   return data.data ?? []
 }
 
+export interface CreateWabaPhoneNumberArgs {
+  wabaId: string
+  accessToken: string
+  /** Country calling code digits, e.g. "91". */
+  cc: string
+  /** National number without country code / trunk 0. */
+  phoneNumber: string
+  verifiedName: string
+}
+
+/**
+ * Create a business phone number on a WABA.
+ * POST /{waba-id}/phone_numbers
+ */
+export async function createWabaPhoneNumber(
+  args: CreateWabaPhoneNumberArgs
+): Promise<MetaPhoneInfo> {
+  const { wabaId, accessToken, cc, phoneNumber, verifiedName } = args
+  const url = `${META_API_BASE}/${wabaId}/phone_numbers`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      cc,
+      phone_number: phoneNumber,
+      verified_name: verifiedName,
+    }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  return response.json()
+}
+
+export interface RequestPhoneVerificationCodeArgs {
+  phoneNumberId: string
+  accessToken: string
+  codeMethod?: 'SMS' | 'VOICE'
+  language?: string
+}
+
+/**
+ * Ask Meta to SMS/voice an OTP to the number.
+ * POST /{phone-number-id}/request_code
+ */
+export async function requestPhoneVerificationCode(
+  args: RequestPhoneVerificationCodeArgs
+): Promise<void> {
+  const {
+    phoneNumberId,
+    accessToken,
+    codeMethod = 'SMS',
+    language = 'en_US',
+  } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/request_code`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      code_method: codeMethod,
+      language,
+    }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+}
+
+export interface VerifyPhoneVerificationCodeArgs {
+  phoneNumberId: string
+  accessToken: string
+  code: string
+}
+
+/**
+ * Confirm the SMS/voice OTP.
+ * POST /{phone-number-id}/verify_code
+ */
+export async function verifyPhoneVerificationCode(
+  args: VerifyPhoneVerificationCodeArgs
+): Promise<void> {
+  const { phoneNumberId, accessToken, code } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/verify_code`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ code }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+}
+
 // ============================================================
 // Cloud API registration (subscription for inbound webhooks)
 // ============================================================

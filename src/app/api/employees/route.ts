@@ -28,7 +28,36 @@ export async function GET() {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
-    return NextResponse.json({ employees: data ?? [] });
+
+    const { data: lines } = await ctx.supabase
+      .from("whatsapp_config")
+      .select(
+        "id, employee_id, phone_number_id, status, label, last_registration_error",
+      )
+      .eq("account_id", ctx.accountId)
+      .not("employee_id", "is", null);
+
+    const byEmployee = new Map(
+      (lines ?? []).map((l) => [l.employee_id as string, l]),
+    );
+
+    const employees = (data ?? []).map((emp) => {
+      const wa = byEmployee.get(emp.id as string);
+      return {
+        ...emp,
+        whatsapp: wa
+          ? {
+              config_id: wa.id,
+              phone_number_id: wa.phone_number_id,
+              status: wa.status,
+              label: wa.label,
+              last_registration_error: wa.last_registration_error,
+            }
+          : null,
+      };
+    });
+
+    return NextResponse.json({ employees });
   } catch (err) {
     return toErrorResponse(err);
   }

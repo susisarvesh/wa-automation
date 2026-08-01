@@ -157,6 +157,14 @@ export interface ContactNote {
 
 export type ConversationStatus = 'open' | 'pending' | 'closed';
 
+export interface EmployeeWhatsAppLink {
+  config_id: string;
+  phone_number_id: string;
+  status: 'connected' | 'disconnected' | 'pending_verification' | string;
+  label?: string | null;
+  last_registration_error?: string | null;
+}
+
 export interface Employee {
   id: string;
   account_id: string;
@@ -167,6 +175,8 @@ export interface Employee {
   is_active: boolean;
   created_at: string;
   updated_at?: string;
+  /** Present when GET /api/employees joins whatsapp_config. */
+  whatsapp?: EmployeeWhatsAppLink | null;
 }
 
 export interface Conversation {
@@ -288,7 +298,7 @@ export interface WhatsAppConfig {
   waba_id?: string;
   access_token: string;
   verify_token?: string;
-  status: 'connected' | 'disconnected';
+  status: 'connected' | 'disconnected' | 'pending_verification';
   connected_at?: string;
   /** Friendly name shown in Connect (e.g. "Sales line"). */
   label?: string | null;
