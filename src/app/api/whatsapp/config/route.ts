@@ -439,6 +439,10 @@ export async function POST(request: Request) {
           user_id: user.id,
           is_primary: makePrimary,
           label: typeof body.label === 'string' ? body.label.trim() || null : null,
+          employee_id:
+            typeof body.employee_id === 'string' && body.employee_id
+              ? body.employee_id
+              : null,
           ...baseRow,
         })
 

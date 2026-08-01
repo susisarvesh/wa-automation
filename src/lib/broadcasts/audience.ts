@@ -1,65 +1,29 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type BroadcastAudienceFilter =
-  | { mode: "all" }
-  | { mode: "tags"; tag_ids: string[] };
+export type BroadcastAudienceFilter = {
+  tag_ids: string[];
+};
 
 export function parseAudienceFilter(
   raw: unknown,
 ): BroadcastAudienceFilter | null {
   if (!raw || typeof raw !== "object") return null;
-  const obj = raw as { mode?: unknown; tag_ids?: unknown };
-
-  // New shape: mode all | tags
-  if (obj.mode === "all") {
-    return { mode: "all" };
-  }
-  if (obj.mode === "tags" || obj.mode === undefined) {
-    const tagIds = obj.tag_ids;
-    if (!Array.isArray(tagIds)) {
-      // Legacy: { tag_ids: [...] } without mode
-      if (obj.mode === "tags") return null;
-    }
-    if (!Array.isArray(tagIds)) return null;
-    const ids = tagIds.filter((t): t is string => typeof t === "string" && !!t);
-    if (ids.length === 0) return null;
-    return { mode: "tags", tag_ids: [...new Set(ids)] };
-  }
-
-  return null;
+  const tagIds = (raw as { tag_ids?: unknown }).tag_ids;
+  if (!Array.isArray(tagIds)) return null;
+  const ids = tagIds.filter((t): t is string => typeof t === "string" && !!t);
+  if (ids.length === 0) return null;
+  return { tag_ids: [...new Set(ids)] };
 }
 
 /**
- * Resolve distinct contact IDs for a campaign audience.
- * - all: every contact in the account
- * - tags: contacts with ANY of the tags (OR)
+ * Resolve distinct contact IDs in an account that have ANY of the tags (OR).
+ * Pages through contact_tags to avoid PostgREST row caps.
  */
 export async function resolveAudienceContactIds(
   admin: SupabaseClient,
   accountId: string,
   filter: BroadcastAudienceFilter,
 ): Promise<string[]> {
-  if (filter.mode === "all") {
-    const ids: string[] = [];
-    const pageSize = 1000;
-    let from = 0;
-    for (;;) {
-      const { data: rows, error } = await admin
-        .from("contacts")
-        .select("id")
-        .eq("account_id", accountId)
-        .range(from, from + pageSize - 1);
-      if (error) throw new Error(error.message);
-      if (!rows?.length) break;
-      for (const row of rows) {
-        if (row.id) ids.push(row.id as string);
-      }
-      if (rows.length < pageSize) break;
-      from += pageSize;
-    }
-    return ids;
-  }
-
   const { data: tags, error: tagErr } = await admin
     .from("tags")
     .select("id")

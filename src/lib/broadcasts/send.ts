@@ -6,7 +6,6 @@ import { enqueueJob } from "@/lib/jobs/queue";
 import { log } from "@/lib/observability/logger";
 import { isMessageTemplate } from "@/lib/whatsapp/template-row-guard";
 import type { MessageTemplate } from "@/types";
-import { resolveBodyParamsForContact } from "@/lib/broadcasts/merge-params";
 
 const BATCH_SIZE = 25;
 const DELAY_MS = 80;
@@ -33,11 +32,8 @@ export async function processBroadcastSendBatch(
     throw new Error(bErr?.message ?? "Broadcast not found");
   }
 
-  if (
-    broadcast.status !== "sending" &&
-    broadcast.status !== "scheduled"
-  ) {
-    // Already finished, cancelled, or draft — nothing to do
+  if (broadcast.status !== "sending" && broadcast.status !== "scheduled") {
+    // Already finished or draft — nothing to do
     return { sent: 0, failed: 0, remaining: 0 };
   }
 
@@ -102,7 +98,7 @@ export async function processBroadcastSendBatch(
 
   const { data: recipients, error: rErr } = await admin
     .from("broadcast_recipients")
-    .select("id, contact_id, contact:contacts(id, phone, name)")
+    .select("id, contact_id, contact:contacts(id, phone)")
     .eq("broadcast_id", broadcastId)
     .eq("status", "pending")
     .order("created_at", { ascending: true })
@@ -114,21 +110,8 @@ export async function processBroadcastSendBatch(
   let failed = 0;
 
   for (const rec of recipients ?? []) {
-    // Bail if campaign was cancelled mid-send.
-    const { data: live } = await admin
-      .from("broadcasts")
-      .select("status")
-      .eq("id", broadcastId)
-      .maybeSingle();
-    if (live?.status === "cancelled") {
-      break;
-    }
-
-    const contact = rec.contact as {
-      phone?: string;
-      name?: string;
-    } | null;
-    const phoneRaw = contact?.phone ?? null;
+    const phoneRaw =
+      (rec.contact as { phone?: string } | null)?.phone ?? null;
     const phone = phoneRaw ? sanitizePhoneForMeta(phoneRaw) : "";
 
     if (!phone || !isValidE164(phone)) {
@@ -143,11 +126,6 @@ export async function processBroadcastSendBatch(
       continue;
     }
 
-    const resolvedParams = resolveBodyParamsForContact(bodyParams, {
-      name: contact?.name,
-      phone: contact?.phone,
-    });
-
     try {
       const result = await sendTemplateMessage({
         phoneNumberId: config.phone_number_id,
@@ -156,10 +134,8 @@ export async function processBroadcastSendBatch(
         templateName: broadcast.template_name,
         language: broadcast.template_language || "en_US",
         template: template ?? undefined,
-        params: resolvedParams,
-        messageParams: resolvedParams.length
-          ? { body: resolvedParams }
-          : undefined,
+        params: bodyParams,
+        messageParams: bodyParams.length ? { body: bodyParams } : undefined,
       });
 
       await admin

@@ -10,6 +10,7 @@ export type WhatsAppConfigRow = {
   verify_token: string | null;
   status: string;
   label?: string | null;
+  employee_id?: string | null;
   is_primary?: boolean;
   connected_at?: string | null;
   registered_at?: string | null;
@@ -18,8 +19,8 @@ export type WhatsAppConfigRow = {
 };
 
 /**
- * Resolve WhatsApp credentials for an account (single company number).
- * Prefer an explicit phone_number_id when provided, else primary, else oldest.
+ * Resolve WhatsApp credentials for an account.
+ * Prefer an explicit phone_number_id, else the primary line, else oldest row.
  */
 export async function resolveWhatsAppConfig(
   db: SupabaseClient,

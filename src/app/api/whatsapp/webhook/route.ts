@@ -280,7 +280,7 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       // Resolve account early for status + message tenancy
       const { data: configRowsEarly } = await supabaseAdmin()
         .from('whatsapp_config')
-        .select('account_id, user_id, access_token, phone_number_id')
+        .select('account_id, user_id, access_token, phone_number_id, employee_id')
         .eq('phone_number_id', phoneNumberId)
         .limit(2)
 
@@ -345,6 +345,7 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           config.user_id,
           decryptedAccessToken,
           phoneNumberId,
+          (config as { employee_id?: string | null }).employee_id ?? null,
         )
       }
     }
@@ -607,6 +608,7 @@ async function processMessage(
   configOwnerUserId: string,
   accessToken: string,
   phoneNumberId: string,
+  employeeId: string | null,
 ) {
   const senderPhone = normalizePhone(message.from)
   const contactName = contact.profile.name
@@ -621,12 +623,13 @@ async function processMessage(
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
 
-  // Find or create conversation (stamp Meta line for reply routing)
+  // Find or create conversation (stamp Meta line + optional employee link)
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
     contactRecord.id,
     phoneNumberId,
+    employeeId,
   )
   if (!convResult) return
   const conversation = convResult.conversation
@@ -984,6 +987,7 @@ async function findOrCreateConversation(
   configOwnerUserId: string,
   contactId: string,
   phoneNumberId?: string | null,
+  employeeId?: string | null,
 ) {
   // Look for an existing conversation in this account, oldest-first.
   //
@@ -1020,6 +1024,9 @@ async function findOrCreateConversation(
         phone_number_id: phoneNumberId,
         updated_at: new Date().toISOString(),
       }
+      if (employeeId && !conv.employee_id) {
+        patch.employee_id = employeeId
+      }
       await supabaseAdmin()
         .from('conversations')
         .update(patch)
@@ -1041,6 +1048,7 @@ async function findOrCreateConversation(
       user_id: configOwnerUserId,
       contact_id: contactId,
       phone_number_id: phoneNumberId ?? null,
+      employee_id: employeeId ?? null,
     })
     .select()
     .single()

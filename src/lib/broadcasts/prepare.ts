@@ -21,9 +21,7 @@ export async function materializeRecipients(
 ): Promise<number> {
   const filter = parseAudienceFilter(broadcast.audience_filter);
   if (!filter) {
-    throw new Error(
-      'Audience must be "all customers" or include at least one tag',
-    );
+    throw new Error("Audience must include at least one tag");
   }
 
   const contactIds = await resolveAudienceContactIds(
