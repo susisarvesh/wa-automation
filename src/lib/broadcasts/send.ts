@@ -58,13 +58,12 @@ export async function processBroadcastSendBatch(
 
   const accountId = broadcast.account_id as string;
 
-  const { data: config, error: cErr } = await admin
-    .from("whatsapp_config")
-    .select("phone_number_id, access_token")
-    .eq("account_id", accountId)
-    .maybeSingle();
+  const { resolveWhatsAppConfig } = await import(
+    "@/lib/whatsapp/resolve-config"
+  );
+  const config = await resolveWhatsAppConfig(admin, accountId);
 
-  if (cErr || !config?.phone_number_id || !config.access_token) {
+  if (!config?.phone_number_id || !config.access_token) {
     await admin
       .from("broadcasts")
       .update({

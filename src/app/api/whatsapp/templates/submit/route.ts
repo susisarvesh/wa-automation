@@ -139,12 +139,11 @@ export async function POST(request: Request) {
       metaTemplateId = `dry-run-${crypto.randomUUID()}`
       metaStatus = 'PENDING'
     } else {
-      const { data: config, error: configError } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .single()
-      if (configError || !config) {
+      const { resolveWhatsAppConfig } = await import(
+        '@/lib/whatsapp/resolve-config'
+      )
+      const config = await resolveWhatsAppConfig(supabase, accountId)
+      if (!config) {
         return NextResponse.json(
           {
             error:

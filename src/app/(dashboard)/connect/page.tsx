@@ -29,6 +29,7 @@ import {
 import { cn } from '@/lib/utils';
 import { humanizeMetaError } from '@/lib/whatsapp/meta-errors';
 import { AccessLockedPanel } from '@/components/auth/access-locked';
+import { MultiNumbersPanel } from '@/components/connect/multi-numbers-panel';
 
 type Step = 1 | 2 | 3;
 
@@ -162,6 +163,9 @@ export default function ConnectPage() {
           .from('whatsapp_config')
           .select('phone_number_id, waba_id, status')
           .eq('account_id', acctId)
+          .order('is_primary', { ascending: false })
+          .order('created_at', { ascending: true })
+          .limit(1)
           .maybeSingle();
         if (data?.phone_number_id) {
           setBusinessNumber(data.phone_number_id);
@@ -308,7 +312,7 @@ export default function ConnectPage() {
   }
 
   return (
-    <div className="mx-auto max-w-xl space-y-8">
+    <div className="mx-auto max-w-xl space-y-8 pb-10">
       <div className="space-y-2 text-center">
         <div className="vsmart-shape mx-auto flex h-12 w-12 items-center justify-center bg-primary text-primary-foreground">
           <MessageSquare className="h-6 w-6" />
@@ -635,6 +639,8 @@ export default function ConnectPage() {
           </CardContent>
         </Card>
       )}
+
+      {alreadyConnected && step === 3 ? <MultiNumbersPanel /> : null}
     </div>
   );
 }

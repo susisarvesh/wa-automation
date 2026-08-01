@@ -53,14 +53,14 @@ export async function GET() {
     const ctx = await getCurrentAccount()
     const { supabase, accountId } = ctx
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, waba_id, access_token, status, connected_at')
-      .eq('account_id', accountId)
-      .maybeSingle()
-
-    if (configError) {
-      console.error('Error fetching whatsapp_config:', configError)
+    const { resolveWhatsAppConfig } = await import(
+      '@/lib/whatsapp/resolve-config'
+    )
+    let config
+    try {
+      config = await resolveWhatsAppConfig(supabase, accountId)
+    } catch (err) {
+      console.error('Error fetching whatsapp_config:', err)
       return NextResponse.json(
         { connected: false, configured: false, reason: 'db_error', message: 'Failed to fetch configuration' },
         { status: 200 }
@@ -183,13 +183,29 @@ export async function POST(request: Request) {
       }
     }
 
-    // Load existing row early so we can reuse a stored permanent token
-    // (PIN-only registration / WABA subscribe without forcing re-paste).
-    const { data: existingRow } = await supabase
+    // Row for this phone_number_id, or any account row for token reuse.
+    const { data: existingForPhone } = await supabase
       .from('whatsapp_config')
-      .select('id, registered_at, phone_number_id, access_token, verify_token, waba_id')
+      .select(
+        'id, registered_at, phone_number_id, access_token, verify_token, waba_id, is_primary',
+      )
       .eq('account_id', accountId)
+      .eq('phone_number_id', phone_number_id)
       .maybeSingle()
+
+    const { data: anyAccountRow } = existingForPhone
+      ? { data: existingForPhone }
+      : await supabase
+          .from('whatsapp_config')
+          .select(
+            'id, registered_at, phone_number_id, access_token, verify_token, waba_id, is_primary',
+          )
+          .eq('account_id', accountId)
+          .order('is_primary', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+    const existingRow = existingForPhone ?? anyAccountRow
 
     let plainAccessToken =
       typeof access_token === 'string' && access_token.trim()
@@ -302,7 +318,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const existing = existingRow
+    const existing = existingForPhone
 
     const sameNumber =
       existing?.phone_number_id === phone_number_id &&
@@ -381,6 +397,13 @@ export async function POST(request: Request) {
     // Persist everything in one shot. If /register failed we still
     // store the credentials and the error so the UI can guide the
     // user through a retry.
+    const { count: accountLines } = await supabaseAdmin()
+      .from('whatsapp_config')
+      .select('id', { count: 'exact', head: true })
+      .eq('account_id', accountId)
+
+    const makePrimary = !existing && (accountLines ?? 0) === 0
+
     const baseRow = {
       phone_number_id,
       waba_id: waba_id || null,
@@ -392,13 +415,14 @@ export async function POST(request: Request) {
       subscribed_apps_at: subscribedAppsAt ?? null,
       last_registration_error: registrationError,
       updated_at: new Date().toISOString(),
+      ...(makePrimary ? { is_primary: true } : {}),
     }
 
     if (existing) {
       const { error: updateError } = await supabase
         .from('whatsapp_config')
         .update(baseRow)
-        .eq('account_id', accountId)
+        .eq('id', existing.id)
 
       if (updateError) {
         console.error('Error updating whatsapp_config:', updateError)
@@ -408,15 +432,17 @@ export async function POST(request: Request) {
         )
       }
     } else {
-      // Insert with both columns: `account_id` is the tenancy key
-      // (NOT NULL post-017, UNIQUE so duplicates trip the constraint
-      // up-front), `user_id` is the audit column identifying which
-      // member of the account saved the config.
       const { error: insertError } = await supabase
         .from('whatsapp_config')
         .insert({
           account_id: accountId,
           user_id: user.id,
+          is_primary: makePrimary,
+          label: typeof body.label === 'string' ? body.label.trim() || null : null,
+          employee_id:
+            typeof body.employee_id === 'string' && body.employee_id
+              ? body.employee_id
+              : null,
           ...baseRow,
         })
 

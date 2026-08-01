@@ -39,13 +39,12 @@ export async function POST(request: Request) {
     }
     const recipient = to.startsWith("+") ? to.slice(1) : to;
 
-    const { data: config, error: configError } = await supabase
-      .from("whatsapp_config")
-      .select("phone_number_id, access_token")
-      .eq("account_id", accountId)
-      .maybeSingle();
+    const { resolveWhatsAppConfig } = await import(
+      "@/lib/whatsapp/resolve-config"
+    );
+    const config = await resolveWhatsAppConfig(supabase, accountId);
 
-    if (configError || !config?.phone_number_id || !config.access_token) {
+    if (!config?.phone_number_id || !config.access_token) {
       return NextResponse.json(
         {
           error:

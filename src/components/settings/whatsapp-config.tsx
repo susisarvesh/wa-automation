@@ -97,16 +97,15 @@ export function WhatsAppConfig() {
   const fetchConfig = useCallback(async (acctId: string) => {
     setLoading(true);
     try {
-      // Load form values from Supabase (shows what's in DB).
-      // Switched from `user_id` (which would only match the row's
-      // original author) to `account_id` so every member of the
-      // account sees the same saved configuration. UNIQUE(account_id)
-      // on the table guarantees the .maybeSingle() return type
-      // remains accurate.
+      // Load primary (or oldest) line — accounts may have multiple
+      // Meta phone numbers after migration 042.
       const { data, error } = await supabase
         .from('whatsapp_config')
         .select('*')
         .eq('account_id', acctId)
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true })
+        .limit(1)
         .maybeSingle();
 
       if (error) {

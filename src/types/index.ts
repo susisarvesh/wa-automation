@@ -176,6 +176,8 @@ export interface Conversation {
   status: ConversationStatus;
   assigned_agent_id?: string;
   employee_id?: string | null;
+  /** Meta Cloud API phone_number_id this thread is on (multi-number). */
+  phone_number_id?: string | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;
@@ -288,6 +290,12 @@ export interface WhatsAppConfig {
   verify_token?: string;
   status: 'connected' | 'disconnected';
   connected_at?: string;
+  /** Friendly name shown in Connect (e.g. "Sales line"). */
+  label?: string | null;
+  /** Optional employee this Meta line is linked to. */
+  employee_id?: string | null;
+  /** Exactly one primary line per account. */
+  is_primary?: boolean;
   /**
    * Set when POST /{phone_number_id}/register last succeeded. NULL
    * means the number was saved but never actually subscribed for

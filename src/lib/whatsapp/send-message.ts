@@ -246,14 +246,16 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
+  const { resolveWhatsAppConfig } = await import(
+    '@/lib/whatsapp/resolve-config'
+  );
+  const config = await resolveWhatsAppConfig(
+    db,
+    accountId,
+    (conversation as { phone_number_id?: string | null }).phone_number_id,
+  );
 
-  if (configError || !config) {
+  if (!config) {
     throw new SendMessageError(
       'whatsapp_not_configured',
       'WhatsApp not configured. Please set up your WhatsApp integration first.',

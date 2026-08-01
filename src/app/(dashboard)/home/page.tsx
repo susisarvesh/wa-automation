@@ -28,6 +28,8 @@ export default function HomePage() {
       .from('whatsapp_config')
       .select('phone_number_id')
       .eq('account_id', accountId)
+      .order('is_primary', { ascending: false })
+      .limit(1)
       .maybeSingle()
       .then(({ data }) => setConnected(Boolean(data?.phone_number_id)));
   }, [accountId, isAccessApproved]);

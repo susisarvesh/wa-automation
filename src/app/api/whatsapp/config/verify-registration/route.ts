@@ -55,11 +55,10 @@ export async function GET() {
     })
   }
 
-  const { data: config } = await supabase
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .maybeSingle()
+  const { resolveWhatsAppConfig } = await import(
+    '@/lib/whatsapp/resolve-config'
+  )
+  const config = await resolveWhatsAppConfig(supabase, accountId)
 
   if (!config) {
     return NextResponse.json({

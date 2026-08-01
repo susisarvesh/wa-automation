@@ -280,7 +280,7 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
       // Resolve account early for status + message tenancy
       const { data: configRowsEarly } = await supabaseAdmin()
         .from('whatsapp_config')
-        .select('account_id, user_id, access_token, phone_number_id')
+        .select('account_id, user_id, access_token, phone_number_id, employee_id')
         .eq('phone_number_id', phoneNumberId)
         .limit(2)
 
@@ -343,7 +343,9 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           contact,
           config.account_id,
           config.user_id,
-          decryptedAccessToken
+          decryptedAccessToken,
+          phoneNumberId,
+          (config as { employee_id?: string | null }).employee_id ?? null,
         )
       }
     }
@@ -604,7 +606,9 @@ async function processMessage(
   // (contacts, conversations). Always the admin who saved the
   // WhatsApp config; the choice is arbitrary post-017 but stable.
   configOwnerUserId: string,
-  accessToken: string
+  accessToken: string,
+  phoneNumberId: string,
+  employeeId: string | null,
 ) {
   const senderPhone = normalizePhone(message.from)
   const contactName = contact.profile.name
@@ -619,11 +623,13 @@ async function processMessage(
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
 
-  // Find or create conversation
+  // Find or create conversation (stamp Meta line + optional employee link)
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
-    contactRecord.id
+    contactRecord.id,
+    phoneNumberId,
+    employeeId,
   )
   if (!convResult) return
   const conversation = convResult.conversation
@@ -980,6 +986,8 @@ async function findOrCreateConversation(
   accountId: string,
   configOwnerUserId: string,
   contactId: string,
+  phoneNumberId?: string | null,
+  employeeId?: string | null,
 ) {
   // Look for an existing conversation in this account, oldest-first.
   //
@@ -1008,7 +1016,27 @@ async function findOrCreateConversation(
   }
 
   if (existingRows && existingRows.length > 0) {
-    return { conversation: existingRows[0], created: false }
+    const conv = existingRows[0]
+    // Stamp the Meta line that last received inbound so replies go out
+    // on the correct phone_number_id under multi-number accounts.
+    if (phoneNumberId && conv.phone_number_id !== phoneNumberId) {
+      const patch: Record<string, unknown> = {
+        phone_number_id: phoneNumberId,
+        updated_at: new Date().toISOString(),
+      }
+      if (employeeId && !conv.employee_id) {
+        patch.employee_id = employeeId
+      }
+      await supabaseAdmin()
+        .from('conversations')
+        .update(patch)
+        .eq('id', conv.id)
+      return {
+        conversation: { ...conv, ...patch },
+        created: false,
+      }
+    }
+    return { conversation: conv, created: false }
   }
 
   // Create new conversation. Same tenancy + audit split as
@@ -1019,6 +1047,8 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: configOwnerUserId,
       contact_id: contactId,
+      phone_number_id: phoneNumberId ?? null,
+      employee_id: employeeId ?? null,
     })
     .select()
     .single()

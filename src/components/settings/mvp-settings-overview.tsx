@@ -25,6 +25,8 @@ export function MvpSettingsOverview({
       .from('whatsapp_config')
       .select('id, phone_number_id')
       .eq('account_id', accountId)
+      .order('is_primary', { ascending: false })
+      .limit(1)
       .maybeSingle()
       .then(({ data }) => {
         setConnected(Boolean(data?.phone_number_id));

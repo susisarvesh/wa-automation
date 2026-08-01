@@ -48,14 +48,12 @@ export async function GET(
       )
     }
 
-    // Fetch and decrypt WhatsApp config
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
+    const { resolveWhatsAppConfig } = await import(
+      '@/lib/whatsapp/resolve-config'
+    )
+    const config = await resolveWhatsAppConfig(supabase, accountId)
 
-    if (configError || !config) {
+    if (!config) {
       return NextResponse.json(
         { error: 'WhatsApp not configured' },
         { status: 400 }

@@ -138,12 +138,11 @@ export async function PATCH(
     }
 
     if (!isDryRun()) {
-      const { data: config, error: configError } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .single()
-      if (configError || !config) {
+      const { resolveWhatsAppConfig } = await import(
+        '@/lib/whatsapp/resolve-config'
+      )
+      const config = await resolveWhatsAppConfig(supabase, accountId)
+      if (!config) {
         return NextResponse.json(
           { error: 'WhatsApp not configured.' },
           { status: 400 },
@@ -278,12 +277,11 @@ export async function DELETE(
     }
 
     if (existing.meta_template_id && !isDryRun()) {
-      const { data: config, error: configError } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', accountId)
-        .single()
-      if (configError || !config || !config.waba_id) {
+      const { resolveWhatsAppConfig } = await import(
+        '@/lib/whatsapp/resolve-config'
+      )
+      const config = await resolveWhatsAppConfig(supabase, accountId)
+      if (!config || !config.waba_id) {
         return NextResponse.json(
           { error: 'WhatsApp not configured — cannot delete on Meta.' },
           { status: 400 },
