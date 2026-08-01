@@ -90,12 +90,17 @@ export default function ConnectPage() {
 
       // Saved credentials stay linked even if Meta health check fails.
       if (body.configured || body.connected) {
+        const detail =
+          typeof body.detail === 'string' && body.detail
+            ? ` (${body.detail.slice(0, 160)})`
+            : '';
         setLive({
           state: 'offline',
-          message: humanizeMetaError(
-            body.message ??
-              'Meta health check failed. Your saved connection is still stored — you do not need to re-enter keys unless you Disconnect.',
-          ),
+          message:
+            humanizeMetaError(
+              body.message ??
+                'Meta health check failed. Your saved connection is still stored — you do not need to re-enter keys unless you Disconnect.',
+            ) + detail,
         });
         return false;
       }
@@ -208,6 +213,12 @@ export default function ConnectPage() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error(
+            body.error ??
+              'Your account role cannot save WhatsApp settings. Sign out and sign back in as the business owner, then try again.',
+          );
+        }
         throw new Error(body.error ?? 'Could not connect to Meta');
       }
 

@@ -97,9 +97,12 @@ export async function ensureUserWorkspace(
             .eq("owner_user_id", user.id);
         }
       } else {
+        // Always re-assert owner — a demoted/stale agent role blocks
+        // WhatsApp Connect saves (requireGranted('admin')).
         await admin
           .from("profiles")
           .update({
+            account_role: "owner",
             full_name: fullName,
             avatar_url: (user.user_metadata?.avatar_url as string) || null,
             email,
