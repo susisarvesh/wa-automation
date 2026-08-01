@@ -107,6 +107,10 @@ describe("matchesTeamInboxFilter", () => {
   it("filters mine / unassigned / done", () => {
     const mine = makeConversation(null, { assigned_agent_id: "agent-1" });
     const unassigned = makeConversation(null, { assigned_agent_id: undefined });
+    const assignedEmployeeOnly = makeConversation(null, {
+      assigned_agent_id: undefined,
+      employee_id: "emp-1",
+    });
     const done = makeConversation(null, { status: "closed" });
 
     expect(matchesTeamInboxFilter(mine, "mine", "agent-1")).toBe(true);
@@ -115,6 +119,9 @@ describe("matchesTeamInboxFilter", () => {
       true,
     );
     expect(matchesTeamInboxFilter(mine, "unassigned", "agent-1")).toBe(false);
+    expect(
+      matchesTeamInboxFilter(assignedEmployeeOnly, "unassigned", "agent-1"),
+    ).toBe(false);
     expect(matchesTeamInboxFilter(done, "done", "agent-1")).toBe(true);
     expect(matchesTeamInboxFilter(mine, "done", "agent-1")).toBe(false);
   });

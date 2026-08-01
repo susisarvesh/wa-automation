@@ -157,12 +157,25 @@ export interface ContactNote {
 
 export type ConversationStatus = 'open' | 'pending' | 'closed';
 
+export interface Employee {
+  id: string;
+  account_id: string;
+  user_id?: string | null;
+  name: string;
+  phone: string;
+  email?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface Conversation {
   id: string;
   user_id: string;
   contact_id: string;
   status: ConversationStatus;
   assigned_agent_id?: string;
+  employee_id?: string | null;
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;

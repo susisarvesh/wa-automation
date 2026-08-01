@@ -538,23 +538,35 @@ function InboxPageInner() {
   );
 
   const handleAssignChange = useCallback(
-    (conversationId: string, assignedAgentId: string | null) => {
+    (
+      conversationId: string,
+      assignedAgentId: string | null,
+      employeeId?: string | null,
+    ) => {
       setConversations((prev) =>
         prev.map((c) =>
           c.id === conversationId
-            ? { ...c, assigned_agent_id: assignedAgentId ?? undefined }
-            : c
-        )
+            ? {
+                ...c,
+                assigned_agent_id: assignedAgentId ?? undefined,
+                employee_id: employeeId ?? null,
+              }
+            : c,
+        ),
       );
       if (activeConversation?.id === conversationId) {
         setActiveConversation((prev) =>
           prev
-            ? { ...prev, assigned_agent_id: assignedAgentId ?? undefined }
-            : prev
+            ? {
+                ...prev,
+                assigned_agent_id: assignedAgentId ?? undefined,
+                employee_id: employeeId ?? null,
+              }
+            : prev,
         );
       }
     },
-    [activeConversation]
+    [activeConversation],
   );
 
   // On mobile (<lg) we show a SINGLE pane — either the list or the

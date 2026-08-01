@@ -100,6 +100,7 @@ export async function middleware(request: NextRequest) {
     "/home",
     "/inbox",
     "/contacts",
+    "/employees",
     "/automations",
     "/broadcasts",
     "/settings",

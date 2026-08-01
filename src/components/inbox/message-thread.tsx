@@ -72,6 +72,7 @@ interface MessageThreadProps {
   onAssignChange: (
     conversationId: string,
     assignedAgentId: string | null,
+    employeeId?: string | null,
   ) => void;
   /**
    * On mobile, the thread is shown full-screen with the conversation list
@@ -173,6 +174,9 @@ export function MessageThread({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [employees, setEmployees] = useState<
+    Array<{ id: string; name: string; user_id?: string | null; is_active: boolean }>
+  >([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   // Purely visual spin state for the manual-refresh button. The actual
   // refetch is fire-and-forget through `onRefresh` (which bumps the
@@ -198,24 +202,34 @@ export function MessageThread({
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
 
-  // Profiles are bounded by RLS to rows the current user is allowed to
-  // see — today that's just the current user, but the dropdown keeps the
-  // shape ready for shared-team workspaces without a refactor.
+  // Profiles + active employees for assignment (Employees directory).
   useEffect(() => {
     let cancelled = false;
     const supabase = createClient();
-    supabase
-      .from("profiles")
-      .select("*")
-      .order("full_name")
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.error("Failed to fetch profiles:", error);
-          return;
-        }
-        setProfiles((data as Profile[]) ?? []);
-      });
+    void (async () => {
+      const [{ data: profileRows, error: profileErr }, empRes] =
+        await Promise.all([
+          supabase.from("profiles").select("*").order("full_name"),
+          fetch("/api/employees", { cache: "no-store" }),
+        ]);
+      if (cancelled) return;
+      if (profileErr) {
+        console.error("Failed to fetch profiles:", profileErr);
+      } else {
+        setProfiles((profileRows as Profile[]) ?? []);
+      }
+      const empBody = await empRes.json().catch(() => ({}));
+      if (empRes.ok) {
+        setEmployees(
+          ((empBody.employees ?? []) as Array<{
+            id: string;
+            name: string;
+            user_id?: string | null;
+            is_active: boolean;
+          }>).filter((e) => e.is_active),
+        );
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -813,13 +827,16 @@ export function MessageThread({
   );
 
   const handleAssignChange = useCallback(
-    async (agentId: string | null) => {
+    async (agentId: string | null, employeeId: string | null = null) => {
       if (!conversation) return;
 
       const supabase = createClient();
       const { error } = await supabase
         .from("conversations")
-        .update({ assigned_agent_id: agentId })
+        .update({
+          assigned_agent_id: agentId,
+          employee_id: employeeId,
+        })
         .eq("id", conversation.id);
 
       if (error) {
@@ -828,7 +845,7 @@ export function MessageThread({
         return;
       }
 
-      onAssignChange(conversation.id, agentId);
+      onAssignChange(conversation.id, agentId, employeeId);
     },
     [conversation, onAssignChange],
   );
@@ -858,10 +875,14 @@ export function MessageThread({
     (s) => s.value === conversation.status
   );
   const assignedAgentId = conversation.assigned_agent_id ?? null;
+  const assignedEmployeeId = conversation.employee_id ?? null;
   const currentAssignee = profiles.find((p) => p.user_id === assignedAgentId);
-  const assignLabel = assignedAgentId
-    ? (currentAssignee?.full_name ?? t("assigned"))
-    : t("assign");
+  const currentEmployee = employees.find((e) => e.id === assignedEmployeeId);
+  const assignLabel = currentEmployee
+    ? currentEmployee.name
+    : assignedAgentId
+      ? (currentAssignee?.full_name ?? t("assigned"))
+      : t("assign");
 
   return (
     // `min-w-0` is load-bearing: the page already puts min-w-0 on the
@@ -1001,20 +1022,39 @@ export function MessageThread({
               align="end"
               className="border-border bg-popover"
             >
-              {profiles.length === 0 ? (
+              {employees.length === 0 && profiles.length === 0 ? (
                 <DropdownMenuItem disabled className="text-sm text-muted-foreground">
                   {t("noTeammates")}
                 </DropdownMenuItem>
-              ) : (
+              ) : null}
+              {employees.map((e) => {
+                const isSelected = e.id === assignedEmployeeId;
+                return (
+                  <DropdownMenuItem
+                    key={e.id}
+                    onClick={() =>
+                      void handleAssignChange(e.user_id ?? null, e.id)
+                    }
+                    className={cn(
+                      "text-sm",
+                      isSelected ? "text-primary" : "text-popover-foreground",
+                    )}
+                  >
+                    <span className="flex-1">{e.name}</span>
+                    {isSelected && <Check className="ml-2 h-3 w-3" />}
+                  </DropdownMenuItem>
+                );
+              })}
+              {employees.length === 0 &&
                 profiles.map((p) => {
                   const isSelected = p.user_id === assignedAgentId;
                   return (
                     <DropdownMenuItem
                       key={p.id}
-                      onClick={() => handleAssignChange(p.user_id)}
+                      onClick={() => void handleAssignChange(p.user_id, null)}
                       className={cn(
                         "text-sm",
-                        isSelected ? "text-primary" : "text-popover-foreground"
+                        isSelected ? "text-primary" : "text-popover-foreground",
                       )}
                     >
                       <span className="flex-1">
@@ -1024,13 +1064,12 @@ export function MessageThread({
                       {isSelected && <Check className="ml-2 h-3 w-3" />}
                     </DropdownMenuItem>
                   );
-                })
-              )}
-              {assignedAgentId && (
+                })}
+              {(assignedAgentId || assignedEmployeeId) && (
                 <>
                   <DropdownMenuSeparator className="bg-border" />
                   <DropdownMenuItem
-                    onClick={() => handleAssignChange(null)}
+                    onClick={() => void handleAssignChange(null, null)}
                     className="text-sm text-muted-foreground"
                   >
                     {t("unassign")}
