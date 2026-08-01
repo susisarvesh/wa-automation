@@ -55,14 +55,14 @@ export async function GET() {
 
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
+      .select('phone_number_id, waba_id, access_token, status, connected_at')
       .eq('account_id', accountId)
       .maybeSingle()
 
     if (configError) {
       console.error('Error fetching whatsapp_config:', configError)
       return NextResponse.json(
-        { connected: false, reason: 'db_error', message: 'Failed to fetch configuration' },
+        { connected: false, configured: false, reason: 'db_error', message: 'Failed to fetch configuration' },
         { status: 200 }
       )
     }
@@ -71,11 +71,20 @@ export async function GET() {
       return NextResponse.json(
         {
           connected: false,
+          configured: false,
           reason: 'no_config',
           message: 'No WhatsApp configuration saved yet. Fill in the form and click Save Configuration.',
         },
         { status: 200 }
       )
+    }
+
+    const base = {
+      configured: true as const,
+      phone_number_id: config.phone_number_id as string,
+      waba_id: (config.waba_id as string | null) ?? null,
+      status: config.status as string,
+      connected_at: (config.connected_at as string | null) ?? null,
     }
 
     // Try to decrypt the stored token with the current ENCRYPTION_KEY.
@@ -87,29 +96,41 @@ export async function GET() {
       console.error('[whatsapp/config GET] Token decryption failed:', err)
       return NextResponse.json(
         {
-          connected: false,
+          ...base,
+          // Sticky: config row exists, but token needs a one-time re-save.
+          connected: config.status === 'connected',
+          live: false,
           reason: 'token_corrupted',
           needs_reset: true,
           message:
-            'The stored access token cannot be decrypted with the current ENCRYPTION_KEY. This usually means the key changed, or it differs between environments (local vs Hostinger vs Vercel). Click "Reset Configuration" below, then re-save.',
+            'The stored access token cannot be decrypted with the current ENCRYPTION_KEY. This usually means the key changed, or it differs between environments (local vs Hostinger vs Vercel). Use Disconnect, then reconnect once with a permanent System User token.',
         },
         { status: 200 }
       )
     }
 
-    // Validate credentials against Meta
+    // Validate credentials against Meta (health check). A temporary Meta
+    // outage must NOT force the admin to re-enter keys — `connected`
+    // follows the saved row; `live` reflects the Graph check.
     try {
       const phoneInfo = await verifyPhoneNumber({
         phoneNumberId: config.phone_number_id,
         accessToken,
       })
-      return NextResponse.json({ connected: true, phone_info: phoneInfo })
+      return NextResponse.json({
+        ...base,
+        connected: true,
+        live: true,
+        phone_info: phoneInfo,
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown Meta API error'
       console.error('[whatsapp/config GET] Meta API verification failed:', message)
       return NextResponse.json(
         {
-          connected: false,
+          ...base,
+          connected: config.status === 'connected',
+          live: false,
           reason: 'meta_api_error',
           message: humanizeMetaError(message),
           detail: message,

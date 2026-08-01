@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Send,
   ShieldCheck,
+  Unplug,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -49,6 +50,7 @@ export default function ConnectPage() {
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [alreadyConnected, setAlreadyConnected] = useState(false);
   const [live, setLive] = useState<LiveStatus>({ state: 'idle' });
 
@@ -71,11 +73,33 @@ export default function ConnectPage() {
     try {
       const res = await fetch('/api/whatsapp/config', { cache: 'no-store' });
       const body = await res.json().catch(() => ({}));
-      if (body.connected && body.phone_info) {
-        setLive({ state: 'live', phone: body.phone_info as PhoneInfo });
+
+      if (body.configured || body.phone_number_id) {
         setAlreadyConnected(true);
+        setStep(3);
+        if (body.phone_number_id) {
+          setBusinessNumber(String(body.phone_number_id));
+        }
+        if (body.waba_id) setBusinessAccount(String(body.waba_id));
+      }
+
+      if (body.live && body.phone_info) {
+        setLive({ state: 'live', phone: body.phone_info as PhoneInfo });
         return true;
       }
+
+      // Saved credentials stay linked even if Meta health check fails.
+      if (body.configured || body.connected) {
+        setLive({
+          state: 'offline',
+          message: humanizeMetaError(
+            body.message ??
+              'Meta health check failed. Your saved connection is still stored — you do not need to re-enter keys unless you Disconnect.',
+          ),
+        });
+        return false;
+      }
+
       setLive({
         state: 'offline',
         message: humanizeMetaError(
@@ -131,17 +155,21 @@ export default function ConnectPage() {
         const supabase = createClient();
         const { data } = await supabase
           .from('whatsapp_config')
-          .select('phone_number_id, waba_id, verify_token')
+          .select('phone_number_id, waba_id, status')
           .eq('account_id', acctId)
           .maybeSingle();
         if (data?.phone_number_id) {
           setBusinessNumber(data.phone_number_id);
           setBusinessAccount(data.waba_id ?? '');
           setVerifyPhrase('');
+          setConnectionCode('');
           setAlreadyConnected(true);
           setStep(3);
-          // Don't block the page on Meta Graph — show UI, then refresh status.
+          // Don't block the page on Meta Graph — show Connected, then health-check.
           void testMetaLive();
+        } else {
+          setAlreadyConnected(false);
+          setStep(1);
         }
       } finally {
         setLoading(false);
@@ -151,9 +179,6 @@ export default function ConnectPage() {
   );
 
   useEffect(() => {
-    // Don't wait on profileLoading — that used to freeze Connect forever
-    // when the auth lock held the profile query. accountId is seeded from
-    // the fixed workspace id as soon as AuthProvider mounts.
     if (authLoading) return;
     if (!accountId) {
       setLoading(false);
@@ -186,22 +211,24 @@ export default function ConnectPage() {
         throw new Error(body.error ?? 'Could not connect to Meta');
       }
 
-      // Always re-check live against Meta Graph API (not just "saved").
+      setConnectionCode('');
+      setVerifyPhrase('');
+      setPin('');
+      setAlreadyConnected(true);
+      setStep(3);
+
       const ok = await testMetaLive();
       if (ok) {
-        setAlreadyConnected(true);
-        setStep(3);
         toast.success(
           body.phone_info?.verified_name
-            ? `Connected to Meta as ${body.phone_info.verified_name}`
-            : 'Connected to Meta',
+            ? `Connected — stays linked until you Disconnect (${body.phone_info.verified_name})`
+            : 'Connected — credentials saved. You won’t need to paste keys again.',
         );
       } else if (body.saved) {
-        setStep(3);
         toast.warning(
           body.registration_error
             ? `Saved, but Meta registration needs attention: ${body.registration_error}`
-            : 'Saved, but Meta is not live yet — check credentials.',
+            : 'Credentials saved. Meta health check failed — use a permanent System User token if this persists.',
         );
       }
     } catch (err) {
@@ -212,6 +239,37 @@ export default function ConnectPage() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function disconnect() {
+    if (
+      !confirm(
+        'Disconnect WhatsApp for this workspace? Automations and campaigns will stop sending until you connect again.',
+      )
+    ) {
+      return;
+    }
+    setDisconnecting(true);
+    try {
+      const res = await fetch('/api/whatsapp/config', { method: 'DELETE' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error ?? 'Could not disconnect');
+      }
+      setAlreadyConnected(false);
+      setBusinessNumber('');
+      setBusinessAccount('');
+      setConnectionCode('');
+      setVerifyPhrase('');
+      setPin('');
+      setLive({ state: 'idle' });
+      setStep(1);
+      toast.success('WhatsApp disconnected');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Disconnect failed');
+    } finally {
+      setDisconnecting(false);
     }
   }
 
@@ -248,36 +306,42 @@ export default function ConnectPage() {
           Connect WhatsApp
         </h1>
         <p className="text-muted-foreground">
-          We verify your Cloud API credentials with Meta in real time before
-          automations can send.
+          Connect once with a permanent System User token. It stays linked until
+          you Disconnect — no daily key paste.
         </p>
       </div>
 
-      <ol className="flex items-center justify-center gap-2">
-        {[1, 2, 3].map((n) => (
-          <li key={n} className="flex items-center gap-2">
-            <span
-              className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold',
-                step >= n
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground',
-              )}
-            >
-              {step > n ? <CheckCircle2 className="h-4 w-4" /> : n}
-            </span>
-            {n < 3 && <span className="h-px w-8 bg-border" />}
-          </li>
-        ))}
-      </ol>
+      {!alreadyConnected && (
+        <ol className="flex items-center justify-center gap-2">
+          {[1, 2, 3].map((n) => (
+            <li key={n} className="flex items-center gap-2">
+              <span
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold',
+                  step >= n
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground',
+                )}
+              >
+                {step > n ? <CheckCircle2 className="h-4 w-4" /> : n}
+              </span>
+              {n < 3 && <span className="h-px w-8 bg-border" />}
+            </li>
+          ))}
+        </ol>
+      )}
 
-      {step === 1 && (
+      {step === 1 && !alreadyConnected && (
         <Card className="vsmart-shape border-border shadow-sm">
           <CardHeader>
             <CardTitle className="font-heading">Ready to connect Meta?</CardTitle>
             <CardDescription>
-              You need a WhatsApp Cloud API phone number ID, permanent access
-              token, and a verify token for the webhook.
+              Use a WhatsApp Cloud API phone number ID, a{' '}
+              <span className="font-medium text-foreground">
+                permanent System User access token
+              </span>{' '}
+              (not the 24-hour temp token from API Setup), and a verify token for
+              the webhook.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -304,8 +368,8 @@ export default function ConnectPage() {
             </div>
             <div className="flex items-start gap-3 rounded-2xl bg-primary/5 p-4 text-sm text-muted-foreground">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              Credentials are encrypted at rest. We call Meta Graph API to
-              confirm the number before marking you connected.
+              Credentials are encrypted at rest and reused for every send. You
+              only reconnect if you Disconnect or rotate the Meta token.
             </div>
             <Button
               size="lg"
@@ -322,9 +386,12 @@ export default function ConnectPage() {
       {step === 2 && (
         <Card className="vsmart-shape border-border shadow-sm">
           <CardHeader>
-            <CardTitle className="font-heading">Meta Cloud API details</CardTitle>
+            <CardTitle className="font-heading">
+              {alreadyConnected ? 'Update credentials' : 'Meta Cloud API details'}
+            </CardTitle>
             <CardDescription>
-              From Meta Developer Console → WhatsApp → API Setup.
+              From Meta Business Settings → System users → Generate token
+              (whatsapp_business_messaging + whatsapp_business_management).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -384,7 +451,11 @@ export default function ConnectPage() {
               />
             </div>
             <div className="flex gap-2 pt-2">
-              <Button variant="outline" className="rounded-xl" onClick={() => setStep(1)}>
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => setStep(alreadyConnected ? 3 : 1)}
+              >
                 Back
               </Button>
               <Button
@@ -400,7 +471,7 @@ export default function ConnectPage() {
         </Card>
       )}
 
-      {step === 3 && (
+      {step === 3 && alreadyConnected && (
         <Card className="vsmart-shape border-primary/20 bg-gradient-to-br from-primary/10 via-card to-brand-orange-soft/40 shadow-sm">
           <CardHeader className="text-center">
             <div
@@ -416,11 +487,7 @@ export default function ConnectPage() {
               )}
             </div>
             <CardTitle className="font-heading text-2xl">
-              {live.state === 'live'
-                ? 'Live on Meta'
-                : alreadyConnected
-                  ? 'Saved — check Meta status'
-                  : 'Connected'}
+              {live.state === 'live' ? 'Connected to Meta' : 'WhatsApp linked'}
             </CardTitle>
             <CardDescription className="text-base">
               {live.state === 'live' && (
@@ -436,11 +503,22 @@ export default function ConnectPage() {
                     : null}
                 </>
               )}
-              {live.state === 'offline' && live.message}
-              {live.state === 'checking' && 'Calling Meta Graph API…'}
+              {live.state === 'offline' && (
+                <>
+                  Credentials stay saved for this workspace. Health check:{' '}
+                  {live.message}
+                </>
+              )}
+              {live.state === 'checking' && 'Checking Meta…'}
               {live.state === 'idle' &&
-                'WhatsApp credentials are saved. Test the live connection below.'}
+                'Saved connection stays active. No need to paste keys again.'}
             </CardDescription>
+            {businessNumber ? (
+              <p className="pt-1 text-xs text-muted-foreground">
+                Phone number ID ·{' '}
+                <code className="rounded bg-muted px-1">{businessNumber}</code>
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-3 rounded-xl border border-border bg-card/80 p-4 text-left">
@@ -449,10 +527,9 @@ export default function ConnectPage() {
                   Send a test WhatsApp
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Sends Meta&apos;s <code className="rounded bg-muted px-1">hello_world</code>{" "}
-                  template (required for first contact). Use your personal number
-                  with country code, e.g. <code className="rounded bg-muted px-1">+919790985447</code>.
-                  Recipient must be on Meta → API Setup → To.
+                  Sends Meta&apos;s <code className="rounded bg-muted px-1">hello_world</code>{' '}
+                  template. Use international format, e.g.{' '}
+                  <code className="rounded bg-muted px-1">+919790985447</code>.
                 </p>
               </div>
               <div className="space-y-2">
@@ -471,7 +548,7 @@ export default function ConnectPage() {
                 size="lg"
                 className="w-full rounded-xl"
                 onClick={sendTestMessage}
-                disabled={testSending || live.state === 'offline'}
+                disabled={testSending}
               >
                 {testSending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -482,9 +559,8 @@ export default function ConnectPage() {
               </Button>
               {lastTestOk ? (
                 <p className="text-xs text-muted-foreground">
-                  Accepted by Meta · message id{" "}
+                  Accepted by Meta · message id{' '}
                   <code className="rounded bg-muted px-1">{lastTestOk}</code>
-                  . Check WhatsApp for the hello_world template.
                 </p>
               ) : null}
             </div>
@@ -503,7 +579,7 @@ export default function ConnectPage() {
                     live.state === 'checking' && 'animate-spin',
                   )}
                 />
-                Re-check credentials
+                Check status
               </Button>
               <Link
                 href="/automations"
@@ -512,13 +588,30 @@ export default function ConnectPage() {
                 Browse automations
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-center">
               <Button
                 variant="ghost"
-                size="lg"
-                className="rounded-xl"
+                size="sm"
+                className="rounded-xl text-muted-foreground"
                 onClick={() => setStep(2)}
               >
                 Update credentials
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => void disconnect()}
+                disabled={disconnecting}
+              >
+                {disconnecting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Unplug className="mr-2 h-4 w-4" />
+                )}
+                Disconnect
               </Button>
             </div>
           </CardContent>

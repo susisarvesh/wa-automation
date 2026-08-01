@@ -96,7 +96,9 @@ export default function AutomationsPage() {
     loadStats()
     fetch("/api/whatsapp/config", { cache: "no-store" })
       .then((r) => r.json())
-      .then((b) => setMetaLive(Boolean(b.connected)))
+      .then((b) =>
+        setMetaLive(Boolean(b.configured || b.connected || b.live)),
+      )
       .catch(() => setMetaLive(false))
   }, [loadAutomations, loadStats])
 
