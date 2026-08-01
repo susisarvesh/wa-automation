@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { MessageTemplate, Tag } from "@/types";
 import { cn } from "@/lib/utils";
+import { humanizeMetaError } from "@/lib/whatsapp/meta-errors";
 
 function countBodyVars(template: MessageTemplate | null): number {
   if (!template?.body_text) return 0;
@@ -36,22 +37,69 @@ export default function NewBroadcastPage() {
   const [bodyParams, setBodyParams] = useState<string[]>([]);
   const [scheduledAt, setScheduledAt] = useState("");
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const loadTemplates = useCallback(async () => {
+    const { data: tmplRows } = await supabase
+      .from("message_templates")
+      .select("*")
+      .eq("status", "APPROVED")
+      .order("name");
+    setTemplates((tmplRows ?? []) as MessageTemplate[]);
+  }, [supabase]);
 
   useEffect(() => {
     if (!isAccessApproved) return;
     void (async () => {
-      const [{ data: tagRows }, { data: tmplRows }] = await Promise.all([
-        supabase.from("tags").select("*").order("name"),
-        supabase
-          .from("message_templates")
-          .select("*")
-          .eq("status", "APPROVED")
-          .order("name"),
-      ]);
+      const { data: tagRows } = await supabase
+        .from("tags")
+        .select("*")
+        .order("name");
       setTags((tagRows ?? []) as Tag[]);
-      setTemplates((tmplRows ?? []) as MessageTemplate[]);
+      await loadTemplates();
     })();
-  }, [isAccessApproved, supabase]);
+  }, [isAccessApproved, supabase, loadTemplates]);
+
+  async function syncTemplates() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/whatsapp/templates/sync", {
+        method: "POST",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(
+          humanizeMetaError(body.error) || "Could not sync templates from Meta",
+        );
+        return;
+      }
+      const { data: tmplRows } = await supabase
+        .from("message_templates")
+        .select("*")
+        .eq("status", "APPROVED")
+        .order("name");
+      const approved = (tmplRows ?? []) as MessageTemplate[];
+      setTemplates(approved);
+      const total = Number(body.total ?? 0);
+      if (approved.length > 0) {
+        toast.success(
+          `Synced — ${approved.length} approved template(s) ready`,
+        );
+      } else if (total > 0) {
+        toast.message(
+          `Synced ${total} template(s), but none are APPROVED yet. Wait for Meta approval, then sync again.`,
+          { duration: 9000 },
+        );
+      } else {
+        toast.message(
+          "No templates on this WhatsApp Business Account yet. Create one in Meta WhatsApp Manager → Message templates, wait for Approved, then sync again.",
+          { duration: 10000 },
+        );
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const selectedTemplate = useMemo(() => {
     if (!templateKey) return null;
@@ -179,7 +227,23 @@ export default function NewBroadcastPage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="template">Template</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="template">Template</Label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={syncing}
+              onClick={() => void syncTemplates()}
+            >
+              {syncing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Sync from Meta
+            </Button>
+          </div>
           <select
             id="template"
             className={cn(
@@ -197,7 +261,9 @@ export default function NewBroadcastPage() {
           </select>
           {templates.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No approved templates yet. Sync them from Connect / Settings.
+              Campaigns need Meta-approved WhatsApp message templates (not
+              Automations recipes). Click Sync from Meta, or create a template in
+              Meta WhatsApp Manager and wait until status is Approved.
             </p>
           ) : null}
         </div>
