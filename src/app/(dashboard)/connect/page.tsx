@@ -505,8 +505,15 @@ export default function ConnectPage() {
               )}
               {live.state === 'offline' && (
                 <>
-                  Credentials stay saved for this workspace. Health check:{' '}
+                  Credentials are saved. Meta health check failed for now:{' '}
                   {live.message}
+                  {live.message.toLowerCase().includes('rate-limited') ||
+                  live.message.toLowerCase().includes('rate limit') ? (
+                    <span className="mt-2 block text-foreground">
+                      Wait 5–10 minutes with no more Save/PIN attempts, then
+                      click Re-check credentials.
+                    </span>
+                  ) : null}
                 </>
               )}
               {live.state === 'checking' && 'Checking Meta…'}

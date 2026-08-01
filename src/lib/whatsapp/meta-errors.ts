@@ -53,8 +53,15 @@ export function humanizeMetaError(raw: string | undefined | null): string {
     return "That recipient can’t receive messages yet. For test numbers, add them under Meta → API Setup → To. Outside the 24h window, use an approved template.";
   }
 
-  if (lower.includes("rate") || lower.includes("(#4)") || lower.includes("80007")) {
-    return "Meta rate-limited this send. Wait a minute and try again.";
+  if (
+    lower.includes("rate limit") ||
+    lower.includes("request limit reached") ||
+    lower.includes("too many calls") ||
+    lower.includes("(#4)") ||
+    lower.includes("80007") ||
+    lower.includes("613")
+  ) {
+    return "Meta rate-limited this request. Wait 5–10 minutes, then click Re-check credentials. Do not keep saving or changing the PIN.";
   }
 
   if (lower.includes("permission") || lower.includes("(#10)")) {
