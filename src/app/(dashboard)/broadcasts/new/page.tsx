@@ -1,16 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, Plus, RefreshCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import {
   AccessLockedPanel,
   AccessWaitingBanner,
 } from "@/components/auth/access-locked";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -227,22 +228,34 @@ export default function NewBroadcastPage() {
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <Label htmlFor="template">Template</Label>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={syncing}
-              onClick={() => void syncTemplates()}
-            >
-              {syncing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              Sync from Meta
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={syncing}
+                onClick={() => void syncTemplates()}
+              >
+                {syncing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Sync from Meta
+              </Button>
+              <Link
+                href="/settings?tab=templates&new=1"
+                className={cn(
+                  buttonVariants({ variant: "outline", size: "sm" }),
+                  "gap-1",
+                )}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create template
+              </Link>
+            </div>
           </div>
           <select
             id="template"
@@ -261,9 +274,9 @@ export default function NewBroadcastPage() {
           </select>
           {templates.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              Campaigns need Meta-approved WhatsApp message templates (not
-              Automations recipes). Click Sync from Meta, or create a template in
-              Meta WhatsApp Manager and wait until status is Approved.
+              Campaigns need Meta-approved WhatsApp message templates. Create one
+              here, Sync from Meta, or wait until a submitted template is
+              Approved.
             </p>
           ) : null}
         </div>

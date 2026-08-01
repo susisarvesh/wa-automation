@@ -9,6 +9,7 @@ import { MvpSettingsOverview } from '@/components/settings/mvp-settings-overview
 import { BusinessProfilePanel } from '@/components/settings/business-profile-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
+import { TemplateCatalog } from '@/components/settings/templates';
 import {
   resolveSection,
   type SettingsSection,
@@ -47,6 +48,7 @@ function SettingsPageInner() {
     business: <BusinessProfilePanel />,
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
+    templates: <TemplateCatalog />,
   };
 
   return (
