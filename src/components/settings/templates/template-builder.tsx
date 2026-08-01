@@ -10,13 +10,17 @@ import {
   TEMPLATE_LIMITS,
   validateTemplatePayload,
 } from '@/lib/whatsapp/template-validators';
-import { humanizeMetaError } from '@/lib/whatsapp/meta-errors';
+import {
+  humanizeMetaError,
+  isLikelyMetaSampleTemplateName,
+} from '@/lib/whatsapp/meta-errors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { HeaderMediaField } from './header-media-field';
 import { TemplatePhonePreview } from './template-phone-preview';
+import { nextCloneTemplateName } from '@/lib/whatsapp/meta-sample-templates';
 import {
   buildSubmitPayload,
   CATEGORIES,
@@ -29,6 +33,15 @@ import {
   type TemplateFormData,
 } from './template-form';
 import { cn } from '@/lib/utils';
+
+function initialForm(editing: MessageTemplate | null): TemplateFormData {
+  if (!editing) return emptyTemplateForm;
+  const form = formFromTemplate(editing);
+  if (isLikelyMetaSampleTemplateName(editing.name)) {
+    form.name = nextCloneTemplateName(editing.name, [editing.name]);
+  }
+  return form;
+}
 
 const selectClass = cn(
   'flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm',
@@ -52,11 +65,17 @@ export function TemplateBuilder({
 }) {
   const t = useTranslations('Settings.templates');
   const [form, setForm] = useState<TemplateFormData>(() =>
-    editing ? formFromTemplate(editing) : emptyTemplateForm,
+    initialForm(editing),
   );
   const [submitting, setSubmitting] = useState(false);
   const isEdit = editing !== null;
-  const nameLocked = isEdit && Boolean(editing?.meta_template_id);
+  const isSample =
+    isEdit &&
+    !!editing &&
+    isLikelyMetaSampleTemplateName(editing.name);
+  // Meta locks name/language on real templates; samples are cloned to a new name.
+  const nameLocked =
+    isEdit && Boolean(editing?.meta_template_id) && !isSample;
 
   const bodyVarCount = useMemo(
     () => extractVariableIndices(form.body_text).length,
@@ -140,15 +159,23 @@ export function TemplateBuilder({
             `${isEdit ? 'Edit' : 'Submit'} failed (HTTP ${res.status})`,
         );
       }
-      toast.success(
-        data.dry_run
-          ? isEdit
-            ? t('toastSaveEditDry')
-            : t('toastSaveNewDry')
-          : isEdit
-            ? t('toastSubmitEditSuccess')
-            : t('toastSubmitNewSuccess'),
-      );
+      if (data.cloned) {
+        toast.success(
+          data.message ||
+            `Created your own template “${data.clone_name ?? 'copy'}” and submitted it for approval.`,
+          { duration: 8000 },
+        );
+      } else {
+        toast.success(
+          data.dry_run
+            ? isEdit
+              ? t('toastSaveEditDry')
+              : t('toastSaveNewDry')
+            : isEdit
+              ? t('toastSubmitEditSuccess')
+              : t('toastSubmitNewSuccess'),
+        );
+      }
       onSaved();
     } catch (err) {
       toast.error(
@@ -180,7 +207,11 @@ export function TemplateBuilder({
             {isEdit ? t('dialogEditTitle') : t('dialogNewTitle')}
           </h2>
           <p className="max-w-xl text-sm text-muted-foreground">
-            {isEdit ? t('dialogEditDesc') : t('dialogNewDesc')}
+            {isSample
+              ? 'This is a Meta sample template — it can’t be changed on Meta. Saving creates your own copy for approval.'
+              : isEdit
+                ? t('dialogEditDesc')
+                : t('dialogNewDesc')}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -195,10 +226,22 @@ export function TemplateBuilder({
             {submitting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : null}
-            {isEdit ? t('saveResubmit') : t('submitApproval')}
+            {isSample
+              ? 'Save as new template'
+              : isEdit
+                ? t('saveResubmit')
+                : t('submitApproval')}
           </Button>
         </div>
       </div>
+
+      {isSample ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
+          Meta sample templates (like jaspers_* / hello_world) are read-only on
+          Meta. Choose a new template name below, then save — we’ll submit your
+          copy. Delete removes it from this app only.
+        </div>
+      ) : null}
 
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-6 rounded-2xl border border-border/80 bg-card p-5 sm:p-6">

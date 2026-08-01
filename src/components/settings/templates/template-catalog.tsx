@@ -150,7 +150,10 @@ export function TemplateCatalog() {
           humanizeMetaError(data?.error) || t('toastDeleteError'),
         );
       }
-      toast.success(t('toastDeleteSuccess'));
+      toast.success(
+        data.message || t('toastDeleteSuccess'),
+        data.meta_skipped ? { duration: 7000 } : undefined,
+      );
       setTemplates((prev) => prev.filter((row) => row.id !== target.id));
       setTemplateToDelete(null);
     } catch (err) {

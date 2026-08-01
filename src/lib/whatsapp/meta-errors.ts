@@ -2,11 +2,43 @@
  * Map Meta Graph API / connect failures to plain-language copy for owners.
  */
 
+/** Meta #100/2388094 — platform sample HSMs are immutable. */
+export function isMetaSampleTemplateError(
+  raw: string | undefined | null,
+): boolean {
+  const lower = (raw ?? "").toLowerCase();
+  return (
+    lower.includes("2388094") ||
+    lower.includes("sample templates cannot") ||
+    (lower.includes("sample template") &&
+      (lower.includes("cannot be edited") ||
+        lower.includes("cannot be deleted") ||
+        lower.includes("can't be edited") ||
+        lower.includes("can't be deleted")))
+  );
+}
+
+/** Heuristic for Meta-provided demo templates synced into the catalog. */
+export function isLikelyMetaSampleTemplateName(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return (
+    n === "hello_world" ||
+    n.startsWith("jaspers_") ||
+    n.startsWith("sample_") ||
+    n.endsWith("_sample") ||
+    n.includes("_sample_")
+  );
+}
+
 export function humanizeMetaError(raw: string | undefined | null): string {
   const msg = (raw ?? "").trim();
   if (!msg) return "Something went wrong talking to Meta. Try again.";
 
   const lower = msg.toLowerCase();
+
+  if (isMetaSampleTemplateError(msg)) {
+    return "This is a Meta sample template — it can’t be edited or deleted on Meta. Save creates your own copy, or Delete removes it from this app only.";
+  }
 
   if (
     lower.includes("session has expired") ||
@@ -34,10 +66,14 @@ export function humanizeMetaError(raw: string | undefined | null): string {
   }
 
   if (
-    lower.includes("invalid parameter") ||
-    lower.includes("(#100)") ||
     lower.includes("(#131009)") ||
-    lower.includes("parameter value is not valid")
+    ((lower.includes("invalid parameter") ||
+      lower.includes("parameter value is not valid") ||
+      lower.includes("(#100)")) &&
+      (lower.includes("phone") ||
+        lower.includes("display name") ||
+        lower.includes("cc") ||
+        lower.includes("national")))
   ) {
     return "Meta rejected this phone or display name. Use a full international number that can receive SMS (not personal WhatsApp), and a real business display name (e.g. “Ma Store”, not a single letter). For India use +91…";
   }
