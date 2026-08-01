@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { useTheme } from '@/hooks/use-theme';
@@ -9,7 +9,6 @@ import { MvpSettingsOverview } from '@/components/settings/mvp-settings-overview
 import { BusinessProfilePanel } from '@/components/settings/business-profile-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
-import { TemplateCatalog } from '@/components/settings/templates';
 import {
   resolveSection,
   type SettingsSection,
@@ -27,6 +26,13 @@ function SettingsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { mode } = useTheme();
+
+  // Templates live at /templates now — bounce legacy Settings deep-links.
+  useEffect(() => {
+    if (searchParams.get('tab') !== 'templates') return;
+    const qs = searchParams.get('new') === '1' ? '?new=1' : '';
+    router.replace(`/templates${qs}`);
+  }, [searchParams, router]);
 
   const section = resolveSection(searchParams.get('tab'));
 
@@ -48,7 +54,6 @@ function SettingsPageInner() {
     business: <BusinessProfilePanel />,
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
-    templates: <TemplateCatalog />,
   };
 
   return (

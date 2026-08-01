@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 import {
   Briefcase,
+  FileText,
   Home,
   LogOut,
   Megaphone,
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { href: "/contacts", label: "Customers", icon: Users },
   { href: "/employees", label: "Employees", icon: Briefcase },
   { href: "/broadcasts", label: "Campaigns", icon: Megaphone },
+  { href: "/templates", label: "Templates", icon: FileText },
   { href: "/connect", label: "Connect", icon: PlugZap },
 ];
 

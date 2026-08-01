@@ -246,7 +246,7 @@ export default function NewBroadcastPage() {
                 Sync from Meta
               </Button>
               <Link
-                href="/settings?tab=templates&new=1"
+                href="/templates?new=1"
                 className={cn(
                   buttonVariants({ variant: "outline", size: "sm" }),
                   "gap-1",

@@ -103,6 +103,7 @@ export async function middleware(request: NextRequest) {
     "/employees",
     "/automations",
     "/broadcasts",
+    "/templates",
     "/settings",
     "/connect",
     "/admin",

@@ -78,7 +78,7 @@ export function TemplateCatalog() {
     void fetchTemplates();
   }, [authLoading, accountId, fetchTemplates]);
 
-  // Deep-link: /settings?tab=templates&new=1
+  // Deep-link: /templates?new=1
   useEffect(() => {
     if (searchParams.get('new') !== '1') return;
     if (!canEditSettings) return;
@@ -86,7 +86,7 @@ export function TemplateCatalog() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete('new');
     const qs = params.toString();
-    router.replace(qs ? `/settings?${qs}` : '/settings?tab=templates', {
+    router.replace(qs ? `/templates?${qs}` : '/templates', {
       scroll: false,
     });
   }, [searchParams, canEditSettings, router]);

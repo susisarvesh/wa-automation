@@ -75,15 +75,6 @@ export function MvpSettingsOverview({
               </Button>
             }
           />
-          <StatusRow
-            done
-            title="Message templates"
-            action={
-              <Button variant="ghost" size="sm" onClick={() => onSelect('templates')}>
-                Templates
-              </Button>
-            }
-          />
         </CardContent>
       </Card>
     </div>
