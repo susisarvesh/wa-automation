@@ -140,7 +140,7 @@ export async function processBroadcastSendBatch(
 
   const { data: recipients, error: rErr } = await admin
     .from("broadcast_recipients")
-    .select("id, contact_id, contact:contacts(id, name, phone)")
+    .select("id, contact_id, contact:contacts(id, name, phone, company, email)")
     .eq("broadcast_id", broadcastId)
     .eq("status", "pending")
     .order("created_at", { ascending: true })
@@ -165,6 +165,8 @@ export async function processBroadcastSendBatch(
     const contact = rec.contact as {
       name?: string;
       phone?: string;
+      company?: string;
+      email?: string;
     } | null;
     const phoneRaw = contact?.phone ?? null;
     const phone = phoneRaw ? sanitizePhoneForMeta(phoneRaw) : "";
@@ -184,6 +186,8 @@ export async function processBroadcastSendBatch(
     const mergeContact = {
       name: contact?.name ?? null,
       phone: contact?.phone ?? phone,
+      company: contact?.company ?? null,
+      email: contact?.email ?? null,
     };
     const bodyParams = mergeParamList(templateVars.body, mergeContact);
     const headerText =

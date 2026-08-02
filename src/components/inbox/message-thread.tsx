@@ -1133,6 +1133,16 @@ export function MessageThread({
         open={templateModalOpen}
         onOpenChange={setTemplateModalOpen}
         onSelect={handleSendTemplate}
+        contact={
+          contact
+            ? {
+                name: contact.name,
+                phone: contact.phone,
+                company: contact.company,
+                email: contact.email,
+              }
+            : null
+        }
       />
     </div>
   );

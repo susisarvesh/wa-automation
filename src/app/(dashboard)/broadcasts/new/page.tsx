@@ -28,10 +28,10 @@ import {
 import {
   buttonSlots,
   countBodyVars,
-  fillBodyPreview,
   needsHeaderText,
   requiredVarsFilled,
 } from "@/lib/broadcasts/template-fields";
+import { TemplateVariableFields } from "@/components/templates/template-variable-fields";
 
 export default function NewBroadcastPage() {
   const router = useRouter();
@@ -165,7 +165,12 @@ export default function NewBroadcastPage() {
   useEffect(() => {
     const n = countBodyVars(selectedTemplate);
     setBodyParams((prev) =>
-      Array.from({ length: n }, (_, i) => prev[i] ?? ""),
+      Array.from({ length: n }, (_, i) => {
+        if (prev[i]?.trim()) return prev[i];
+        if (i === 0) return "{{contact.name}}";
+        if (i === 1) return "{{contact.company}}";
+        return "";
+      }),
     );
     if (!needsHeaderText(selectedTemplate)) setHeaderText("");
     const nextSlots = buttonSlots(selectedTemplate);
@@ -385,62 +390,18 @@ export default function NewBroadcastPage() {
           ) : null}
         </div>
 
-        {bodyParams.length > 0 || needsHeader || slots.length > 0 ? (
-          <div className="space-y-3">
-            <Label>Template variables</Label>
-            <p className="text-xs text-muted-foreground">
-              Use merge tokens in any field:{" "}
-              <code className="rounded bg-muted px-1">{"{{contact.name}}"}</code>{" "}
-              or{" "}
-              <code className="rounded bg-muted px-1">{"{{contact.phone}}"}</code>
-            </p>
-            {needsHeader ? (
-              <Input
-                value={headerText}
-                onChange={(e) => setHeaderText(e.target.value)}
-                placeholder="Header {{1}}"
-              />
-            ) : null}
-            {bodyParams.map((v, i) => (
-              <Input
-                key={i}
-                value={v}
-                onChange={(e) => {
-                  const next = [...bodyParams];
-                  next[i] = e.target.value;
-                  setBodyParams(next);
-                }}
-                placeholder={`Body {{${i + 1}}}`}
-              />
-            ))}
-            {slots.map((s) => (
-              <Input
-                key={s.index}
-                value={buttonParams[s.index] ?? ""}
-                onChange={(e) =>
-                  setButtonParams((prev) => ({
-                    ...prev,
-                    [s.index]: e.target.value,
-                  }))
-                }
-                placeholder={
-                  s.kind === "url"
-                    ? `${s.label} URL suffix`
-                    : `${s.label} code`
-                }
-              />
-            ))}
-          </div>
-        ) : null}
-
-        {selectedTemplate?.body_text ? (
-          <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3">
-            <p className="text-xs font-medium text-muted-foreground">Preview</p>
-            <p className="whitespace-pre-wrap text-sm">
-              {fillBodyPreview(selectedTemplate.body_text, bodyParams)}
-            </p>
-          </div>
-        ) : null}
+        <TemplateVariableFields
+          mode="merge"
+          bodyText={selectedTemplate?.body_text}
+          bodyParams={bodyParams}
+          onBodyParamsChange={setBodyParams}
+          showHeader={needsHeader}
+          headerText={headerText}
+          onHeaderTextChange={setHeaderText}
+          buttonSlots={slots}
+          buttonParams={buttonParams}
+          onButtonParamsChange={setButtonParams}
+        />
 
         <CampaignAudienceFields
           mode={audienceMode}

@@ -6,17 +6,23 @@ import {
 } from "./merge-params";
 
 describe("mergeParamString", () => {
-  it("replaces contact name and phone", () => {
+  it("replaces contact name, phone, company, and email", () => {
     expect(
-      mergeParamString("Hi {{contact.name}} at {{contact.phone}}", {
-        name: "Ada",
-        phone: "+15551212",
-      }),
-    ).toBe("Hi Ada at +15551212");
+      mergeParamString(
+        "Hi {{contact.name}} at {{contact.company}} ({{contact.phone}}) {{contact.email}}",
+        {
+          name: "Ada",
+          phone: "+15551212",
+          company: "Vsmart",
+          email: "ada@vsmarttec.com",
+        },
+      ),
+    ).toBe("Hi Ada at Vsmart (+15551212) ada@vsmarttec.com");
   });
 
   it("uses empty string for missing fields", () => {
     expect(mergeParamString("{{contact.name}}", { phone: "+1" })).toBe("");
+    expect(mergeParamString("{{contact.company}}", { name: "Ada" })).toBe("");
   });
 
   it("leaves unrelated braces alone", () => {
@@ -27,8 +33,11 @@ describe("mergeParamString", () => {
 describe("mergeParamList / mergeButtonParams", () => {
   it("maps lists", () => {
     expect(
-      mergeParamList(["{{contact.name}}", "static"], { name: "Bo" }),
-    ).toEqual(["Bo", "static"]);
+      mergeParamList(["{{contact.name}}", "{{contact.company}}"], {
+        name: "Bo",
+        company: "Acme",
+      }),
+    ).toEqual(["Bo", "Acme"]);
   });
 
   it("maps button params by index", () => {

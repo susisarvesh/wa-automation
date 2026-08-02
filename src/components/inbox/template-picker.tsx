@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { MessageTemplate } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +21,11 @@ import {
 } from "lucide-react";
 import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
 import { isWorkspaceVisibleTemplateName } from "@/lib/whatsapp/meta-errors";
+import {
+  TemplateVariableFields,
+  type ContactFieldHints,
+} from "@/components/templates/template-variable-fields";
+import type { CampaignButtonSlot } from "@/lib/broadcasts/template-fields";
 import { useTranslations } from "next-intl";
 
 export interface TemplateSendValues {
@@ -35,14 +38,8 @@ interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (template: MessageTemplate, values: TemplateSendValues) => void;
-}
-
-function renderBodyPreview(body: string, params: string[]): string {
-  return body.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
-    const idx = Number(raw) - 1;
-    const value = params[idx];
-    return value && value.trim().length > 0 ? value : `{{${raw}}}`;
-  });
+  /** Prefill / chip values from the customer being messaged. */
+  contact?: ContactFieldHints | null;
 }
 
 interface UrlButtonSlot {
@@ -75,10 +72,22 @@ function collectVariableSlots(template: MessageTemplate): {
   return { bodyVars, headerVarCount, urlButtonSlots };
 }
 
+function defaultBodyParams(
+  count: number,
+  contact?: ContactFieldHints | null,
+): string[] {
+  return Array.from({ length: count }, (_, i) => {
+    if (i === 0) return String(contact?.name ?? "").trim();
+    if (i === 1) return String(contact?.company ?? "").trim();
+    return "";
+  });
+}
+
 export function TemplatePicker({
   open,
   onOpenChange,
   onSelect,
+  contact = null,
 }: TemplatePickerProps) {
   const t = useTranslations("Inbox.templatePicker");
 
@@ -161,7 +170,7 @@ export function TemplatePicker({
       return;
     }
     setSelected(template);
-    setParams(new Array(slots.bodyVars.length).fill(""));
+    setParams(defaultBodyParams(slots.bodyVars.length, contact));
     setHeaderText("");
     setButtonParams({});
   }
@@ -255,66 +264,42 @@ export function TemplatePicker({
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="rounded-md border border-border bg-background/50 p-3">
-              <p className="mb-1 text-xs text-muted-foreground">{t("preview")}</p>
-              <p className="whitespace-pre-wrap text-sm text-popover-foreground">
-                {renderBodyPreview(selected.body_text, params)}
-              </p>
-              {selected.footer_text && (
-                <p className="mt-2 text-xs italic text-muted-foreground">
-                  {selected.footer_text}
+            <TemplateVariableFields
+              mode="literal"
+              contact={contact}
+              bodyText={selected.body_text}
+              bodyParams={params}
+              onBodyParamsChange={setParams}
+              showHeader={(slots?.headerVarCount ?? 0) > 0}
+              headerText={headerText}
+              onHeaderTextChange={setHeaderText}
+              buttonSlots={
+                (slots?.urlButtonSlots.map(
+                  (s): CampaignButtonSlot => ({
+                    index: s.index,
+                    label: s.text || `URL button ${s.index + 1}`,
+                    kind: "url",
+                  }),
+                ) ?? []) as CampaignButtonSlot[]
+              }
+              buttonParams={buttonParams}
+              onButtonParamsChange={setButtonParams}
+            />
+            {slots?.urlButtonSlots.map((slot) =>
+              (buttonParams[slot.index] ?? "").trim() ? (
+                <p
+                  key={`url-${slot.index}`}
+                  className="text-[10px] text-muted-foreground break-all"
+                >
+                  {t("finalUrl", {
+                    url: slot.url.replace(
+                      /\{\{1\}\}/g,
+                      buttonParams[slot.index] || "{{1}}",
+                    ),
+                  })}
                 </p>
-              )}
-            </div>
-            {slots && slots.headerVarCount > 0 && (
-              <div className="space-y-1">
-                <Label className="text-xs text-popover-foreground">
-                  {`Header {{1}}`}
-                </Label>
-                <Input
-                  value={headerText}
-                  onChange={(e) => setHeaderText(e.target.value)}
-                  placeholder={t("headerValuePlaceholder")}
-                  className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
+              ) : null,
             )}
-            {slots?.bodyVars.map((v, i) => (
-              <div key={v} className="space-y-1">
-                <Label className="text-xs text-popover-foreground">{`Body {{${v}}}`}</Label>
-                <Input
-                  value={params[i] ?? ""}
-                  onChange={(e) => {
-                    const next = [...params];
-                    next[i] = e.target.value;
-                    setParams(next);
-                  }}
-                  placeholder={t("bodyValuePlaceholder", { val: `{{${v}}}` })}
-                  className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-            ))}
-            {slots?.urlButtonSlots.map((slot) => (
-              <div key={slot.index} className="space-y-1">
-                <Label className="text-xs text-popover-foreground">
-                  {`URL button "${slot.text}" — value for `}{`{{1}}`}
-                </Label>
-                <Input
-                  value={buttonParams[slot.index] ?? ""}
-                  onChange={(e) =>
-                    setButtonParams((prev) => ({
-                      ...prev,
-                      [slot.index]: e.target.value,
-                    }))
-                  }
-                  placeholder={t("urlSuffixValuePlaceholder")}
-                  className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-                />
-                <p className="text-[10px] text-muted-foreground break-all">
-                  {t("finalUrl", { url: slot.url.replace(/\{\{1\}\}/g, buttonParams[slot.index] || "{{1}}") })}
-                </p>
-              </div>
-            ))}
           </div>
         )}
 

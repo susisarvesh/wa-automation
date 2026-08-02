@@ -671,6 +671,16 @@ export function ContactDetailView({
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}
       onSelect={handleSendTemplate}
+      contact={
+        contact
+          ? {
+              name: contact.name,
+              phone: contact.phone,
+              company: contact.company,
+              email: contact.email,
+            }
+          : null
+      }
     />
     </>
   );

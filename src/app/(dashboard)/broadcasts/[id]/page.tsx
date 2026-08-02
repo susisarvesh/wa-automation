@@ -32,7 +32,6 @@ import { parseAudienceFilter } from "@/lib/broadcasts/audience";
 import {
   buttonSlots,
   countBodyVars,
-  fillBodyPreview,
   needsHeaderText,
   requiredVarsFilled,
 } from "@/lib/broadcasts/template-fields";
@@ -40,6 +39,7 @@ import {
   humanizeMetaError,
   isWorkspaceVisibleTemplateName,
 } from "@/lib/whatsapp/meta-errors";
+import { TemplateVariableFields } from "@/components/templates/template-variable-fields";
 
 type RecipientRow = BroadcastRecipient & {
   contact?: { id: string; name?: string; phone?: string } | null;
@@ -260,7 +260,12 @@ export default function BroadcastDetailPage() {
     if (broadcast?.status !== "draft") return;
     const n = countBodyVars(selectedTemplate);
     setBodyParams((prev) =>
-      Array.from({ length: n }, (_, i) => prev[i] ?? ""),
+      Array.from({ length: n }, (_, i) => {
+        if (prev[i]?.trim()) return prev[i];
+        if (i === 0) return "{{contact.name}}";
+        if (i === 1) return "{{contact.company}}";
+        return "";
+      }),
     );
   }, [selectedTemplate, broadcast?.status]);
 
@@ -634,49 +639,18 @@ export default function BroadcastDetailPage() {
                 ) : null}
               </div>
 
-              <div className="space-y-2">
-                <Label>Template variables</Label>
-                <p className="text-xs text-muted-foreground">
-                  Merge tokens: {"{{contact.name}}"}, {"{{contact.phone}}"}
-                </p>
-                {needsHeader ? (
-                  <Input
-                    value={headerText}
-                    onChange={(e) => setHeaderText(e.target.value)}
-                    placeholder="Header {{1}}"
-                  />
-                ) : null}
-                {bodyParams.map((v, i) => (
-                  <Input
-                    key={i}
-                    value={v}
-                    onChange={(e) => {
-                      const next = [...bodyParams];
-                      next[i] = e.target.value;
-                      setBodyParams(next);
-                    }}
-                    placeholder={`Body {{${i + 1}}}`}
-                  />
-                ))}
-                {slots.map((s) => (
-                  <Input
-                    key={s.index}
-                    value={buttonParams[s.index] ?? ""}
-                    onChange={(e) =>
-                      setButtonParams((prev) => ({
-                        ...prev,
-                        [s.index]: e.target.value,
-                      }))
-                    }
-                    placeholder={s.label}
-                  />
-                ))}
-                {selectedTemplate?.body_text ? (
-                  <div className="rounded-md bg-muted/40 p-3 text-sm whitespace-pre-wrap">
-                    {fillBodyPreview(selectedTemplate.body_text, bodyParams)}
-                  </div>
-                ) : null}
-              </div>
+              <TemplateVariableFields
+                mode="merge"
+                bodyText={selectedTemplate?.body_text}
+                bodyParams={bodyParams}
+                onBodyParamsChange={setBodyParams}
+                showHeader={needsHeader}
+                headerText={headerText}
+                onHeaderTextChange={setHeaderText}
+                buttonSlots={slots}
+                buttonParams={buttonParams}
+                onButtonParamsChange={setButtonParams}
+              />
 
               <CampaignAudienceFields
                 mode={audienceMode}

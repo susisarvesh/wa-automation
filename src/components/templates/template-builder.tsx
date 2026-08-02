@@ -391,7 +391,28 @@ export function TemplateBuilder({
           </div>
 
           <div className="space-y-2 border-t border-border/60 pt-5">
-            <Label htmlFor="tmpl-body">{t('bodyText')}</Label>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label htmlFor="tmpl-body">{t('bodyText')}</Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const next = bodyVarCount + 1;
+                  setForm((f) => ({
+                    ...f,
+                    body_text: `${f.body_text}${
+                      f.body_text && !/\s$/.test(f.body_text) ? ' ' : ''
+                    }{{${next}}}`,
+                  }));
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Insert {'{{'}
+                {bodyVarCount + 1}
+                {'}}'}
+              </Button>
+            </div>
             <Textarea
               id="tmpl-body"
               rows={5}
@@ -401,24 +422,38 @@ export function TemplateBuilder({
               }
               placeholder={t('bodyPlaceholder')}
             />
-            <p className="text-xs text-muted-foreground">{t('bodyHint')}</p>
+            <p className="text-xs text-muted-foreground">
+              Use numbered placeholders like Meta:{' '}
+              <code className="rounded bg-muted px-1">{'{{1}}'}</code> name,{' '}
+              <code className="rounded bg-muted px-1">{'{{2}}'}</code> company,{' '}
+              <code className="rounded bg-muted px-1">{'{{3}}'}</code> order
+              details. When sending, you fill each field (or use contact chips).
+            </p>
             {bodyVarCount > 0 ? (
               <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
                 <p className="text-xs font-medium text-muted-foreground">
-                  {t('sampleValues')}
+                  Example values for Meta review (one per {'{{n}}'})
                 </p>
                 {form.body_samples.map((sample, i) => (
-                  <Input
-                    key={i}
-                    value={sample}
-                    onChange={(e) => {
-                      const body_samples = [...form.body_samples];
-                      body_samples[i] = e.target.value;
-                      setForm((f) => ({ ...f, body_samples }));
-                    }}
-                    placeholder={t('samplePlaceholder', { var: `{{${i + 1}}}` })}
-                    aria-label={t('sampleAria', { var: `{{${i + 1}}}` })}
-                  />
+                  <div key={i} className="space-y-1">
+                    <Label className="text-xs">{`{{${i + 1}}}`}</Label>
+                    <Input
+                      value={sample}
+                      onChange={(e) => {
+                        const body_samples = [...form.body_samples];
+                        body_samples[i] = e.target.value;
+                        setForm((f) => ({ ...f, body_samples }));
+                      }}
+                      placeholder={
+                        i === 0
+                          ? 'e.g. Rajesh'
+                          : i === 1
+                            ? 'e.g. Acme Security Pvt Ltd'
+                            : t('samplePlaceholder', { var: `{{${i + 1}}}` })
+                      }
+                      aria-label={t('sampleAria', { var: `{{${i + 1}}}` })}
+                    />
+                  </div>
                 ))}
               </div>
             ) : null}
