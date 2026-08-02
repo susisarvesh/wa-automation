@@ -9,6 +9,7 @@ import { MvpSettingsOverview } from '@/components/settings/mvp-settings-overview
 import { BusinessProfilePanel } from '@/components/settings/business-profile-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
+import { ApiKeysPanel } from '@/components/settings/api-keys-panel';
 import {
   resolveSection,
   type SettingsSection,
@@ -54,6 +55,7 @@ function SettingsPageInner() {
     business: <BusinessProfilePanel />,
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
+    'api-keys': <ApiKeysPanel />,
   };
 
   return (
