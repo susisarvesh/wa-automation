@@ -15,7 +15,7 @@ export async function GET() {
     const { data, error } = await ctx.supabase
       .from("api_keys")
       .select(
-        "id, name, token_prefix, scopes, last_used_at, revoked_at, created_at",
+        "id, name, key_prefix, scopes, last_used_at, revoked_at, created_at, expires_at",
       )
       .eq("account_id", ctx.accountId)
       .order("created_at", { ascending: false });
@@ -23,8 +23,13 @@ export async function GET() {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+    const keys = (data ?? []).map((k) => ({
+      ...k,
+      // Alias for UI that historically expected token_prefix
+      token_prefix: k.key_prefix,
+    }));
     return NextResponse.json({
-      keys: data ?? [],
+      keys,
       available_scopes: API_KEY_SCOPES,
     });
   } catch (err) {
@@ -73,12 +78,12 @@ export async function POST(request: Request) {
     .insert({
       account_id: ctx.accountId,
       name,
-      token_prefix: tokenPrefix,
-      token_hash: tokenHash,
+      key_prefix: tokenPrefix,
+      key_hash: tokenHash,
       scopes,
       created_by: ctx.userId,
     })
-    .select("id, name, token_prefix, scopes, created_at")
+    .select("id, name, key_prefix, scopes, created_at")
     .single();
 
   if (error || !row) {
@@ -99,7 +104,10 @@ export async function POST(request: Request) {
 
   return NextResponse.json(
     {
-      key: row,
+      key: {
+        ...row,
+        token_prefix: row.key_prefix,
+      },
       token: plaintext,
       warning:
         "Copy this token now. It will not be shown again.",

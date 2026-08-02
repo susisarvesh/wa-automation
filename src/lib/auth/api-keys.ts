@@ -77,10 +77,11 @@ export async function requireApiKey(
   const tokenHash = hashApiKey(token);
   const admin = supabaseAdmin();
 
+  // Live DB uses key_hash / key_prefix (legacy CHANGELOG schema).
   const { data: row, error } = await admin
     .from("api_keys")
-    .select("id, account_id, name, scopes, revoked_at, token_hash")
-    .eq("token_hash", tokenHash)
+    .select("id, account_id, name, scopes, revoked_at, expires_at, key_hash")
+    .eq("key_hash", tokenHash)
     .maybeSingle();
 
   if (error) {
@@ -89,9 +90,15 @@ export async function requireApiKey(
   if (!row || row.revoked_at) {
     throw new ApiKeyError("unauthorized", "Invalid or revoked API key", 401);
   }
+  if (
+    row.expires_at &&
+    new Date(String(row.expires_at)).getTime() <= Date.now()
+  ) {
+    throw new ApiKeyError("unauthorized", "API key has expired", 401);
+  }
 
   // Defense in depth if DB collation ever surprises us
-  const stored = Buffer.from(String(row.token_hash));
+  const stored = Buffer.from(String(row.key_hash));
   const incoming = Buffer.from(tokenHash);
   if (
     stored.length !== incoming.length ||
