@@ -69,16 +69,29 @@ export async function POST(request: Request) {
   const audience = parseAudienceFilter(body.audience_filter);
   if (!audience) {
     return NextResponse.json(
-      { error: "audience_filter.tag_ids must be a non-empty array" },
+      {
+        error:
+          "audience_filter must be { mode: \"all\" } or { mode: \"tags\", tag_ids: [...] }",
+      },
       { status: 400 },
     );
   }
 
-  const bodyVars = Array.isArray(body.body_params)
-    ? body.body_params.map((p: unknown) => String(p ?? ""))
-    : Array.isArray(body.template_variables?.body)
-      ? body.template_variables.body.map((p: unknown) => String(p ?? ""))
+  let templateVariables: Record<string, unknown>;
+  if (body.template_variables && typeof body.template_variables === "object") {
+    templateVariables = body.template_variables as Record<string, unknown>;
+  } else {
+    const bodyVars = Array.isArray(body.body_params)
+      ? body.body_params.map((p: unknown) => String(p ?? ""))
       : [];
+    templateVariables = { body: bodyVars };
+    if (typeof body.header_text === "string") {
+      templateVariables.headerText = body.header_text;
+    }
+    if (body.button_params && typeof body.button_params === "object") {
+      templateVariables.buttonParams = body.button_params;
+    }
+  }
 
   const scheduledAt =
     typeof body.scheduled_at === "string" && body.scheduled_at
@@ -117,7 +130,7 @@ export async function POST(request: Request) {
       name,
       template_name: templateName,
       template_language: templateLanguage,
-      template_variables: { body: bodyVars },
+      template_variables: templateVariables,
       audience_filter: audience,
       scheduled_at: scheduledAt,
       status: "draft",

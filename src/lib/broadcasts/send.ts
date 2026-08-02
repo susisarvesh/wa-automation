@@ -6,12 +6,45 @@ import { enqueueJob } from "@/lib/jobs/queue";
 import { log } from "@/lib/observability/logger";
 import { isMessageTemplate } from "@/lib/whatsapp/template-row-guard";
 import type { MessageTemplate } from "@/types";
+import {
+  mergeButtonParams,
+  mergeParamList,
+  mergeParamString,
+} from "@/lib/broadcasts/merge-params";
+import type { SendTimeParams } from "@/lib/whatsapp/template-send-builder";
 
 const BATCH_SIZE = 25;
 const DELAY_MS = 80;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function parseTemplateVariables(raw: unknown): {
+  body: string[];
+  headerText?: string;
+  buttonParams?: Record<number, string>;
+} {
+  const vars = (raw ?? {}) as {
+    body?: string[];
+    params?: string[];
+    headerText?: string;
+    buttonParams?: Record<string, string> | Record<number, string>;
+  };
+  const body = vars.body ?? vars.params ?? [];
+  const buttonParams: Record<number, string> = {};
+  if (vars.buttonParams && typeof vars.buttonParams === "object") {
+    for (const [k, v] of Object.entries(vars.buttonParams)) {
+      const idx = Number(k);
+      if (Number.isFinite(idx)) buttonParams[idx] = String(v ?? "");
+    }
+  }
+  return {
+    body: body.map((p) => String(p ?? "")),
+    headerText:
+      typeof vars.headerText === "string" ? vars.headerText : undefined,
+    buttonParams: Object.keys(buttonParams).length ? buttonParams : undefined,
+  };
 }
 
 /**
@@ -33,7 +66,7 @@ export async function processBroadcastSendBatch(
   }
 
   if (broadcast.status !== "sending" && broadcast.status !== "scheduled") {
-    // Already finished or draft — nothing to do
+    // Cancelled, draft, sent, failed — stop.
     return { sent: 0, failed: 0, remaining: 0 };
   }
 
@@ -45,7 +78,18 @@ export async function processBroadcastSendBatch(
         started_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", broadcastId);
+      .eq("id", broadcastId)
+      .eq("status", "scheduled");
+
+    // Re-check — may have been cancelled between read and update.
+    const { data: again } = await admin
+      .from("broadcasts")
+      .select("status")
+      .eq("id", broadcastId)
+      .maybeSingle();
+    if (again?.status !== "sending") {
+      return { sent: 0, failed: 0, remaining: 0 };
+    }
   } else if (!broadcast.started_at) {
     await admin
       .from("broadcasts")
@@ -53,7 +97,8 @@ export async function processBroadcastSendBatch(
         started_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", broadcastId);
+      .eq("id", broadcastId)
+      .eq("status", "sending");
   }
 
   const accountId = broadcast.account_id as string;
@@ -71,7 +116,8 @@ export async function processBroadcastSendBatch(
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", broadcastId);
+      .eq("id", broadcastId)
+      .eq("status", "sending");
     throw new Error("WhatsApp not configured for this account");
   }
 
@@ -90,15 +136,11 @@ export async function processBroadcastSendBatch(
       ? (templateRow as MessageTemplate)
       : null;
 
-  const vars = (broadcast.template_variables ?? {}) as {
-    body?: string[];
-    params?: string[];
-  };
-  const bodyParams = vars.body ?? vars.params ?? [];
+  const templateVars = parseTemplateVariables(broadcast.template_variables);
 
   const { data: recipients, error: rErr } = await admin
     .from("broadcast_recipients")
-    .select("id, contact_id, contact:contacts(id, phone)")
+    .select("id, contact_id, contact:contacts(id, name, phone)")
     .eq("broadcast_id", broadcastId)
     .eq("status", "pending")
     .order("created_at", { ascending: true })
@@ -110,8 +152,21 @@ export async function processBroadcastSendBatch(
   let failed = 0;
 
   for (const rec of recipients ?? []) {
-    const phoneRaw =
-      (rec.contact as { phone?: string } | null)?.phone ?? null;
+    // Bail mid-batch if campaign was cancelled.
+    const { data: live } = await admin
+      .from("broadcasts")
+      .select("status")
+      .eq("id", broadcastId)
+      .maybeSingle();
+    if (live?.status !== "sending") {
+      return { sent, failed, remaining: 0 };
+    }
+
+    const contact = rec.contact as {
+      name?: string;
+      phone?: string;
+    } | null;
+    const phoneRaw = contact?.phone ?? null;
     const phone = phoneRaw ? sanitizePhoneForMeta(phoneRaw) : "";
 
     if (!phone || !isValidE164(phone)) {
@@ -126,6 +181,27 @@ export async function processBroadcastSendBatch(
       continue;
     }
 
+    const mergeContact = {
+      name: contact?.name ?? null,
+      phone: contact?.phone ?? phone,
+    };
+    const bodyParams = mergeParamList(templateVars.body, mergeContact);
+    const headerText =
+      templateVars.headerText !== undefined
+        ? mergeParamString(templateVars.headerText, mergeContact)
+        : undefined;
+    const buttonParams = mergeButtonParams(
+      templateVars.buttonParams,
+      mergeContact,
+    );
+
+    const messageParams: SendTimeParams = {};
+    if (bodyParams.length) messageParams.body = bodyParams;
+    if (headerText !== undefined && headerText !== "") {
+      messageParams.headerText = headerText;
+    }
+    if (buttonParams) messageParams.buttonParams = buttonParams;
+
     try {
       const result = await sendTemplateMessage({
         phoneNumberId: config.phone_number_id,
@@ -135,7 +211,8 @@ export async function processBroadcastSendBatch(
         language: broadcast.template_language || "en_US",
         template: template ?? undefined,
         params: bodyParams,
-        messageParams: bodyParams.length ? { body: bodyParams } : undefined,
+        messageParams:
+          Object.keys(messageParams).length > 0 ? messageParams : undefined,
       });
 
       await admin
@@ -168,6 +245,15 @@ export async function processBroadcastSendBatch(
     await sleep(DELAY_MS);
   }
 
+  const { data: stillSending } = await admin
+    .from("broadcasts")
+    .select("status")
+    .eq("id", broadcastId)
+    .maybeSingle();
+  if (stillSending?.status !== "sending") {
+    return { sent, failed, remaining: 0 };
+  }
+
   const { count: remaining } = await admin
     .from("broadcast_recipients")
     .select("id", { count: "exact", head: true })
@@ -196,8 +282,7 @@ export async function processBroadcastSendBatch(
       .eq("broadcast_id", broadcastId)
       .in("status", ["sent", "delivered", "read", "replied"]);
 
-    const allFailed =
-      (failCount ?? 0) > 0 && (sentCount ?? 0) === 0;
+    const allFailed = (failCount ?? 0) > 0 && (sentCount ?? 0) === 0;
 
     await admin
       .from("broadcasts")
@@ -206,7 +291,8 @@ export async function processBroadcastSendBatch(
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", broadcastId);
+      .eq("id", broadcastId)
+      .eq("status", "sending");
   }
 
   return { sent, failed, remaining: left };

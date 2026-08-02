@@ -75,7 +75,7 @@ export async function POST(request: Request, { params }: Params) {
 
     if (total === 0) {
       return NextResponse.json(
-        { error: "No contacts match the selected tags" },
+        { error: "No sendable contacts in this audience (need valid phones)" },
         { status: 400 },
       );
     }

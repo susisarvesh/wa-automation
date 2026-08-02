@@ -20,6 +20,7 @@ const STATUS_LABEL: Record<BroadcastStatus, string> = {
   sending: "Sending",
   sent: "Sent",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 function statusClass(status: BroadcastStatus) {
@@ -32,6 +33,8 @@ function statusClass(status: BroadcastStatus) {
       return "bg-amber-500/10 text-amber-800";
     case "failed":
       return "bg-destructive/10 text-destructive";
+    case "cancelled":
+      return "bg-muted text-muted-foreground";
     default:
       return "bg-muted text-muted-foreground";
   }

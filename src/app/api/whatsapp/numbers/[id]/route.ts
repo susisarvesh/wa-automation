@@ -37,11 +37,6 @@ export async function PATCH(request: Request, { params }: Params) {
   if (typeof body.label === "string") {
     updates.label = body.label.trim() || null;
   }
-  if (body.employee_id === null) {
-    updates.employee_id = null;
-  } else if (typeof body.employee_id === "string") {
-    updates.employee_id = body.employee_id || null;
-  }
 
   if (body.is_primary === true && !existing.is_primary) {
     await admin
@@ -57,7 +52,7 @@ export async function PATCH(request: Request, { params }: Params) {
     .update(updates)
     .eq("id", id)
     .select(
-      "id, phone_number_id, waba_id, status, label, employee_id, is_primary, registered_at, connected_at",
+      "id, phone_number_id, waba_id, status, label, is_primary, registered_at, connected_at",
     )
     .single();
 

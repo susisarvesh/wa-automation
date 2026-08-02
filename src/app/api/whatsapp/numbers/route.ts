@@ -21,7 +21,7 @@ export async function GET() {
     const { data, error } = await ctx.supabase
       .from("whatsapp_config")
       .select(
-        "id, phone_number_id, waba_id, status, label, employee_id, is_primary, registered_at, connected_at, created_at",
+        "id, phone_number_id, waba_id, status, label, is_primary, registered_at, connected_at, created_at",
       )
       .eq("account_id", ctx.accountId)
       .order("is_primary", { ascending: false })
@@ -39,7 +39,7 @@ export async function GET() {
 /**
  * POST — add another Meta Cloud API phone number under this account.
  * Reuses the primary System User token by default (same WABA/app).
- * Body: { phone_number_id, label?, employee_id?, pin?, access_token?, waba_id? }
+ * Body: { phone_number_id, label?, pin?, access_token?, waba_id? }
  */
 export async function POST(request: Request) {
   let ctx;
@@ -170,13 +170,9 @@ export async function POST(request: Request) {
         typeof body.label === "string" && body.label.trim()
           ? body.label.trim()
           : null,
-      employee_id:
-        typeof body.employee_id === "string" && body.employee_id
-          ? body.employee_id
-          : null,
     })
     .select(
-      "id, phone_number_id, waba_id, status, label, employee_id, is_primary, registered_at, connected_at",
+      "id, phone_number_id, waba_id, status, label, is_primary, registered_at, connected_at",
     )
     .single();
 

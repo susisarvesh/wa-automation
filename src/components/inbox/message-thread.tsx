@@ -72,7 +72,6 @@ interface MessageThreadProps {
   onAssignChange: (
     conversationId: string,
     assignedAgentId: string | null,
-    employeeId?: string | null,
   ) => void;
   /**
    * On mobile, the thread is shown full-screen with the conversation list
@@ -174,9 +173,6 @@ export function MessageThread({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [employees, setEmployees] = useState<
-    Array<{ id: string; name: string; user_id?: string | null; is_active: boolean }>
-  >([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
   // Purely visual spin state for the manual-refresh button. The actual
   // refetch is fire-and-forget through `onRefresh` (which bumps the
@@ -202,32 +198,20 @@ export function MessageThread({
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
 
-  // Profiles + active employees for assignment (Employees directory).
+  // Profiles for assignment.
   useEffect(() => {
     let cancelled = false;
     const supabase = createClient();
     void (async () => {
-      const [{ data: profileRows, error: profileErr }, empRes] =
-        await Promise.all([
-          supabase.from("profiles").select("*").order("full_name"),
-          fetch("/api/employees", { cache: "no-store" }),
-        ]);
+      const { data: profileRows, error: profileErr } = await supabase
+        .from("profiles")
+        .select("*")
+        .order("full_name");
       if (cancelled) return;
       if (profileErr) {
         console.error("Failed to fetch profiles:", profileErr);
       } else {
         setProfiles((profileRows as Profile[]) ?? []);
-      }
-      const empBody = await empRes.json().catch(() => ({}));
-      if (empRes.ok) {
-        setEmployees(
-          ((empBody.employees ?? []) as Array<{
-            id: string;
-            name: string;
-            user_id?: string | null;
-            is_active: boolean;
-          }>).filter((e) => e.is_active),
-        );
       }
     })();
     return () => {
@@ -827,7 +811,7 @@ export function MessageThread({
   );
 
   const handleAssignChange = useCallback(
-    async (agentId: string | null, employeeId: string | null = null) => {
+    async (agentId: string | null) => {
       if (!conversation) return;
 
       const supabase = createClient();
@@ -835,7 +819,6 @@ export function MessageThread({
         .from("conversations")
         .update({
           assigned_agent_id: agentId,
-          employee_id: employeeId,
         })
         .eq("id", conversation.id);
 
@@ -845,7 +828,7 @@ export function MessageThread({
         return;
       }
 
-      onAssignChange(conversation.id, agentId, employeeId);
+      onAssignChange(conversation.id, agentId);
     },
     [conversation, onAssignChange],
   );
@@ -875,14 +858,10 @@ export function MessageThread({
     (s) => s.value === conversation.status
   );
   const assignedAgentId = conversation.assigned_agent_id ?? null;
-  const assignedEmployeeId = conversation.employee_id ?? null;
   const currentAssignee = profiles.find((p) => p.user_id === assignedAgentId);
-  const currentEmployee = employees.find((e) => e.id === assignedEmployeeId);
-  const assignLabel = currentEmployee
-    ? currentEmployee.name
-    : assignedAgentId
-      ? (currentAssignee?.full_name ?? t("assigned"))
-      : t("assign");
+  const assignLabel = assignedAgentId
+    ? (currentAssignee?.full_name ?? t("assigned"))
+    : t("assign");
 
   return (
     // `min-w-0` is load-bearing: the page already puts min-w-0 on the
@@ -1022,54 +1001,35 @@ export function MessageThread({
               align="end"
               className="border-border bg-popover"
             >
-              {employees.length === 0 && profiles.length === 0 ? (
+              {profiles.length === 0 ? (
                 <DropdownMenuItem disabled className="text-sm text-muted-foreground">
                   {t("noTeammates")}
                 </DropdownMenuItem>
               ) : null}
-              {employees.map((e) => {
-                const isSelected = e.id === assignedEmployeeId;
+              {profiles.map((p) => {
+                const isSelected = p.user_id === assignedAgentId;
                 return (
                   <DropdownMenuItem
-                    key={e.id}
-                    onClick={() =>
-                      void handleAssignChange(e.user_id ?? null, e.id)
-                    }
+                    key={p.id}
+                    onClick={() => void handleAssignChange(p.user_id)}
                     className={cn(
                       "text-sm",
                       isSelected ? "text-primary" : "text-popover-foreground",
                     )}
                   >
-                    <span className="flex-1">{e.name}</span>
+                    <span className="flex-1">
+                      {p.full_name}
+                      {p.user_id === user?.id ? t("me") : ""}
+                    </span>
                     {isSelected && <Check className="ml-2 h-3 w-3" />}
                   </DropdownMenuItem>
                 );
               })}
-              {employees.length === 0 &&
-                profiles.map((p) => {
-                  const isSelected = p.user_id === assignedAgentId;
-                  return (
-                    <DropdownMenuItem
-                      key={p.id}
-                      onClick={() => void handleAssignChange(p.user_id, null)}
-                      className={cn(
-                        "text-sm",
-                        isSelected ? "text-primary" : "text-popover-foreground",
-                      )}
-                    >
-                      <span className="flex-1">
-                        {p.full_name}
-                        {p.user_id === user?.id ? t("me") : ""}
-                      </span>
-                      {isSelected && <Check className="ml-2 h-3 w-3" />}
-                    </DropdownMenuItem>
-                  );
-                })}
-              {(assignedAgentId || assignedEmployeeId) && (
+              {assignedAgentId && (
                 <>
                   <DropdownMenuSeparator className="bg-border" />
                   <DropdownMenuItem
-                    onClick={() => void handleAssignChange(null, null)}
+                    onClick={() => void handleAssignChange(null)}
                     className="text-sm text-muted-foreground"
                   >
                     {t("unassign")}

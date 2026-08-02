@@ -13,7 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { Employee } from "@/types";
 
 type WaNumber = {
   id: string;
@@ -21,7 +20,6 @@ type WaNumber = {
   waba_id: string | null;
   status: string;
   label: string | null;
-  employee_id: string | null;
   is_primary: boolean;
   registered_at: string | null;
   connected_at: string | null;
@@ -39,8 +37,6 @@ export function MultiNumbersPanel() {
   const [numbers, setNumbers] = useState<WaNumber[] | null>(null);
   const [available, setAvailable] = useState<MetaAvailable[] | null>(null);
   const [availableError, setAvailableError] = useState<string | null>(null);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [defaultEmployeeId, setDefaultEmployeeId] = useState("");
   const [pin, setPin] = useState("");
   const [addingId, setAddingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -50,20 +46,13 @@ export function MultiNumbersPanel() {
   const [manualLabel, setManualLabel] = useState("");
 
   const loadLinked = useCallback(async () => {
-    const [numRes, empRes] = await Promise.all([
-      fetch("/api/whatsapp/numbers", { cache: "no-store" }),
-      fetch("/api/employees", { cache: "no-store" }),
-    ]);
+    const numRes = await fetch("/api/whatsapp/numbers", { cache: "no-store" });
     const numBody = await numRes.json().catch(() => ({}));
-    const empBody = await empRes.json().catch(() => ({}));
     if (numRes.ok) {
       setNumbers((numBody.numbers ?? []) as WaNumber[]);
     } else {
       toast.error(numBody.error || "Could not load WhatsApp numbers");
       setNumbers([]);
-    }
-    if (empRes.ok) {
-      setEmployees((empBody.employees ?? []) as Employee[]);
     }
   }, []);
 
@@ -104,7 +93,6 @@ export function MultiNumbersPanel() {
         body: JSON.stringify({
           phone_number_id: n.phone_number_id,
           label,
-          employee_id: defaultEmployeeId || undefined,
           pin: pin.trim() || undefined,
         }),
       });
@@ -141,7 +129,6 @@ export function MultiNumbersPanel() {
         body: JSON.stringify({
           phone_number_id: manualPhoneId.trim(),
           label: manualLabel.trim() || undefined,
-          employee_id: defaultEmployeeId || undefined,
           pin: pin.trim() || undefined,
         }),
       });
@@ -174,27 +161,6 @@ export function MultiNumbersPanel() {
         return;
       }
       toast.success("Primary number updated");
-      await loadLinked();
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function linkEmployee(id: string, nextEmployeeId: string) {
-    setBusyId(id);
-    try {
-      const res = await fetch(`/api/whatsapp/numbers/${id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          employee_id: nextEmployeeId || null,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(body.error || "Could not update link");
-        return;
-      }
       await loadLinked();
     } finally {
       setBusyId(null);
@@ -288,22 +254,6 @@ export function MultiNumbersPanel() {
                   ) : null}
                 </div>
               </div>
-              <div className="mt-3 space-y-1">
-                <Label className="text-xs">Link to employee (optional)</Label>
-                <select
-                  className="flex h-9 w-full rounded-lg border border-input bg-background px-2 text-sm"
-                  value={n.employee_id ?? ""}
-                  disabled={busyId === n.id}
-                  onChange={(e) => void linkEmployee(n.id, e.target.value)}
-                >
-                  <option value="">None</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
             </li>
           ))}
         </ul>
@@ -327,26 +277,6 @@ export function MultiNumbersPanel() {
               Refresh
             </Button>
           </div>
-
-          {employees.length > 0 ? (
-            <div className="space-y-1">
-              <Label className="text-xs">
-                Link new lines to employee (optional)
-              </Label>
-              <select
-                className="flex h-9 w-full rounded-xl border border-input bg-background px-2 text-sm"
-                value={defaultEmployeeId}
-                onChange={(e) => setDefaultEmployeeId(e.target.value)}
-              >
-                <option value="">None</option>
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
 
           <div className="space-y-1">
             <Label htmlFor="add-pin" className="text-xs">

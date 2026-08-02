@@ -25,7 +25,7 @@ async function loadOwned(
   return data;
 }
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
   try {
     const ctx = await requireRole("viewer");
     const { id } = await params;
@@ -34,22 +34,92 @@ export async function GET(_request: Request, { params }: Params) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const { data: recipients, error } = await supabaseAdmin()
+    const url = new URL(request.url);
+    const page = Math.max(1, Number(url.searchParams.get("page") || "1") || 1);
+    const limit = Math.min(
+      200,
+      Math.max(1, Number(url.searchParams.get("limit") || "50") || 50),
+    );
+    const statusFilter = url.searchParams.get("status")?.trim() || "";
+    const exportCsv = url.searchParams.get("export") === "csv";
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    let query = supabaseAdmin()
       .from("broadcast_recipients")
       .select(
         "id, broadcast_id, contact_id, status, sent_at, delivered_at, read_at, replied_at, error_message, whatsapp_message_id, created_at, contact:contacts(id, name, phone)",
+        { count: "exact" },
       )
       .eq("broadcast_id", id)
-      .order("created_at", { ascending: true })
-      .limit(500);
+      .order("created_at", { ascending: true });
+
+    if (statusFilter) {
+      query = query.eq("status", statusFilter);
+    }
+
+    if (exportCsv) {
+      query = query.limit(10000);
+    } else {
+      query = query.range(from, to);
+    }
+
+    const { data: recipients, error, count } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    if (exportCsv) {
+      const rows = recipients ?? [];
+      const header = [
+        "status",
+        "name",
+        "phone",
+        "error_message",
+        "sent_at",
+        "delivered_at",
+        "read_at",
+        "replied_at",
+      ];
+      const escape = (v: unknown) => {
+        const s = String(v ?? "");
+        if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      };
+      const lines = [
+        header.join(","),
+        ...rows.map((r) => {
+          const c = r.contact as { name?: string; phone?: string } | null;
+          return [
+            r.status,
+            c?.name ?? "",
+            c?.phone ?? "",
+            r.error_message ?? "",
+            r.sent_at ?? "",
+            r.delivered_at ?? "",
+            r.read_at ?? "",
+            r.replied_at ?? "",
+          ]
+            .map(escape)
+            .join(",");
+        }),
+      ];
+      return new NextResponse(lines.join("\n"), {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="campaign-${id}-recipients.csv"`,
+        },
+      });
+    }
+
     return NextResponse.json({
       broadcast,
       recipients: recipients ?? [],
+      recipients_total: count ?? 0,
+      page,
+      limit,
     });
   } catch (err) {
     return toErrorResponse(err);
@@ -98,18 +168,28 @@ export async function PATCH(request: Request, { params }: Params) {
     const audience = parseAudienceFilter(body.audience_filter);
     if (!audience) {
       return NextResponse.json(
-        { error: "audience_filter.tag_ids must be a non-empty array" },
+        {
+          error:
+            "audience_filter must be { mode: \"all\" } or { mode: \"tags\", tag_ids: [...] }",
+        },
         { status: 400 },
       );
     }
     updates.audience_filter = audience;
   }
-  if (Array.isArray(body.body_params)) {
-    updates.template_variables = {
+  if (body.template_variables && typeof body.template_variables === "object") {
+    updates.template_variables = body.template_variables;
+  } else if (Array.isArray(body.body_params)) {
+    const next: Record<string, unknown> = {
       body: body.body_params.map((p: unknown) => String(p ?? "")),
     };
-  } else if (body.template_variables && typeof body.template_variables === "object") {
-    updates.template_variables = body.template_variables;
+    if (typeof body.header_text === "string") {
+      next.headerText = body.header_text;
+    }
+    if (body.button_params && typeof body.button_params === "object") {
+      next.buttonParams = body.button_params;
+    }
+    updates.template_variables = next;
   }
   if (body.scheduled_at === null) {
     updates.scheduled_at = null;

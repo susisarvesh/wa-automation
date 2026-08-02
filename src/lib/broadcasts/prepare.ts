@@ -4,12 +4,46 @@ import {
   resolveAudienceContactIds,
 } from "@/lib/broadcasts/audience";
 import { enqueueJob } from "@/lib/jobs/queue";
+import { isValidE164, sanitizePhoneForMeta } from "@/lib/whatsapp/phone-utils";
 
 const INSERT_CHUNK = 400;
+const PHONE_PAGE = 500;
+
+/**
+ * Keep only contacts with a valid E.164 phone (sendable).
+ */
+export async function filterSendableContactIds(
+  admin: SupabaseClient,
+  accountId: string,
+  contactIds: string[],
+): Promise<string[]> {
+  if (contactIds.length === 0) return [];
+  const sendable: string[] = [];
+
+  for (let i = 0; i < contactIds.length; i += PHONE_PAGE) {
+    const slice = contactIds.slice(i, i + PHONE_PAGE);
+    const { data, error } = await admin
+      .from("contacts")
+      .select("id, phone")
+      .eq("account_id", accountId)
+      .in("id", slice);
+
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      const phone = row.phone ? sanitizePhoneForMeta(String(row.phone)) : "";
+      if (phone && isValidE164(phone)) {
+        sendable.push(row.id as string);
+      }
+    }
+  }
+
+  return sendable;
+}
 
 /**
  * Resolve audience, insert pending recipients, set total_recipients.
  * Replaces any existing recipients (draft re-send).
+ * Skips contacts without a valid phone.
  */
 export async function materializeRecipients(
   admin: SupabaseClient,
@@ -21,13 +55,18 @@ export async function materializeRecipients(
 ): Promise<number> {
   const filter = parseAudienceFilter(broadcast.audience_filter);
   if (!filter) {
-    throw new Error("Audience must include at least one tag");
+    throw new Error("Invalid audience filter");
   }
 
-  const contactIds = await resolveAudienceContactIds(
+  const resolved = await resolveAudienceContactIds(
     admin,
     broadcast.account_id,
     filter,
+  );
+  const contactIds = await filterSendableContactIds(
+    admin,
+    broadcast.account_id,
+    resolved,
   );
 
   await admin

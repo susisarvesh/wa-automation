@@ -14,16 +14,21 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import type { MessageTemplate, Tag } from "@/types";
 import { cn } from "@/lib/utils";
 import { humanizeMetaError } from "@/lib/whatsapp/meta-errors";
-
-function countBodyVars(template: MessageTemplate | null): number {
-  if (!template?.body_text) return 0;
-  const matches = template.body_text.match(/\{\{\d+\}\}/g);
-  return matches?.length ?? 0;
-}
+import {
+  CampaignAudienceFields,
+  buildAudienceFilter,
+  type AudienceMode,
+} from "@/components/broadcasts/campaign-audience-fields";
+import {
+  buttonSlots,
+  countBodyVars,
+  fillBodyPreview,
+  needsHeaderText,
+  requiredVarsFilled,
+} from "@/lib/broadcasts/template-fields";
 
 export default function NewBroadcastPage() {
   const router = useRouter();
@@ -32,10 +37,17 @@ export default function NewBroadcastPage() {
 
   const [name, setName] = useState("");
   const [tags, setTags] = useState<Tag[]>([]);
+  const [audienceMode, setAudienceMode] = useState<AudienceMode>("all");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [tagMatch, setTagMatch] = useState<"any" | "all">("any");
+  const [excludeTagIds, setExcludeTagIds] = useState<string[]>([]);
+  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [templateKey, setTemplateKey] = useState("");
   const [bodyParams, setBodyParams] = useState<string[]>([]);
+  const [headerText, setHeaderText] = useState("");
+  const [buttonParams, setButtonParams] = useState<Record<number, string>>({});
   const [scheduledAt, setScheduledAt] = useState("");
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -61,6 +73,50 @@ export default function NewBroadcastPage() {
     })();
   }, [isAccessApproved, supabase, loadTemplates]);
 
+  const audienceFilter = useMemo(
+    () =>
+      buildAudienceFilter({
+        mode: audienceMode,
+        selectedTagIds,
+        tagMatch,
+        excludeTagIds,
+      }),
+    [audienceMode, selectedTagIds, tagMatch, excludeTagIds],
+  );
+
+  useEffect(() => {
+    if (!isAccessApproved || !audienceFilter) {
+      setPreviewCount(null);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch("/api/broadcasts/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audience_filter: audienceFilter }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (cancelled) return;
+          if (res.ok) {
+            setPreviewCount(Number(body.count ?? 0));
+          } else {
+            setPreviewCount(null);
+          }
+        } finally {
+          if (!cancelled) setPreviewLoading(false);
+        }
+      })();
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [audienceFilter, isAccessApproved]);
+
   async function syncTemplates() {
     setSyncing(true);
     try {
@@ -74,29 +130,13 @@ export default function NewBroadcastPage() {
         );
         return;
       }
-      const { data: tmplRows } = await supabase
-        .from("message_templates")
-        .select("*")
-        .eq("status", "APPROVED")
-        .order("name");
-      const approved = (tmplRows ?? []) as MessageTemplate[];
-      setTemplates(approved);
+      await loadTemplates();
       const total = Number(body.total ?? 0);
-      if (approved.length > 0) {
-        toast.success(
-          `Synced — ${approved.length} approved template(s) ready`,
-        );
-      } else if (total > 0) {
-        toast.message(
-          `Synced ${total} template(s), but none are APPROVED yet. Wait for Meta approval, then sync again.`,
-          { duration: 9000 },
-        );
-      } else {
-        toast.message(
-          "No templates on this WhatsApp Business Account yet. Create one in Meta WhatsApp Manager → Message templates, wait for Approved, then sync again.",
-          { duration: 10000 },
-        );
-      }
+      toast.success(
+        total > 0
+          ? `Synced — check approved templates below`
+          : "Sync complete — no templates on Meta yet",
+      );
     } finally {
       setSyncing(false);
     }
@@ -104,16 +144,43 @@ export default function NewBroadcastPage() {
 
   const selectedTemplate = useMemo(() => {
     if (!templateKey) return null;
-    return templates.find((t) => `${t.name}::${t.language}` === templateKey) ?? null;
+    return (
+      templates.find((t) => `${t.name}::${t.language}` === templateKey) ?? null
+    );
   }, [templateKey, templates]);
+
+  const slots = useMemo(
+    () => buttonSlots(selectedTemplate),
+    [selectedTemplate],
+  );
+  const needsHeader = needsHeaderText(selectedTemplate);
 
   useEffect(() => {
     const n = countBodyVars(selectedTemplate);
-    setBodyParams((prev) => {
-      const next = Array.from({ length: n }, (_, i) => prev[i] ?? "");
+    setBodyParams((prev) =>
+      Array.from({ length: n }, (_, i) => prev[i] ?? ""),
+    );
+    if (!needsHeaderText(selectedTemplate)) setHeaderText("");
+    const nextSlots = buttonSlots(selectedTemplate);
+    setButtonParams((prev) => {
+      const next: Record<number, string> = {};
+      for (const s of nextSlots) next[s.index] = prev[s.index] ?? "";
       return next;
     });
   }, [selectedTemplate]);
+
+  const varsOk = requiredVarsFilled(
+    selectedTemplate,
+    bodyParams,
+    headerText,
+    buttonParams,
+  );
+  const canSend =
+    !!name.trim() &&
+    !!selectedTemplate &&
+    !!audienceFilter &&
+    (previewCount ?? 0) > 0 &&
+    varsOk;
 
   async function save(andSend: "draft" | "now" | "schedule") {
     if (!name.trim()) {
@@ -124,8 +191,20 @@ export default function NewBroadcastPage() {
       toast.error("Pick an approved template");
       return;
     }
-    if (selectedTagIds.length === 0) {
-      toast.error("Select at least one tag");
+    if (!audienceFilter) {
+      toast.error(
+        audienceMode === "tags"
+          ? "Select at least one include tag"
+          : "Invalid audience",
+      );
+      return;
+    }
+    if ((previewCount ?? 0) <= 0 && andSend !== "draft") {
+      toast.error("Audience has 0 sendable recipients");
+      return;
+    }
+    if (!varsOk) {
+      toast.error("Fill all required template variables");
       return;
     }
     if (andSend === "schedule" && !scheduledAt) {
@@ -146,8 +225,18 @@ export default function NewBroadcastPage() {
           name: name.trim(),
           template_name: selectedTemplate.name,
           template_language: selectedTemplate.language,
-          body_params: bodyParams,
-          audience_filter: { tag_ids: selectedTagIds },
+          template_variables: {
+            body: bodyParams,
+            ...(needsHeader ? { headerText } : {}),
+            ...(slots.length
+              ? {
+                  buttonParams: Object.fromEntries(
+                    slots.map((s) => [s.index, buttonParams[s.index] ?? ""]),
+                  ),
+                }
+              : {}),
+          },
+          audience_filter: audienceFilter,
           scheduled_at: scheduledIso,
         }),
       });
@@ -212,7 +301,7 @@ export default function NewBroadcastPage() {
           New campaign
         </h1>
         <p className="text-sm text-muted-foreground">
-          Choose a template and tag audience, then send or schedule.
+          Choose a template and audience, then send or schedule.
         </p>
       </div>
 
@@ -273,69 +362,92 @@ export default function NewBroadcastPage() {
             ))}
           </select>
           {templates.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Campaigns need Meta-approved WhatsApp message templates. Create one
-              here, Sync from Meta, or wait until a submitted template is
-              Approved.
-            </p>
+            <div className="rounded-md border border-dashed border-border bg-muted/40 p-3 text-xs text-muted-foreground space-y-2">
+              <p>
+                No APPROVED templates yet. Create one on Templates, wait for
+                Meta approval, then Sync — or open Templates to check Pending
+                status.
+              </p>
+              <Link
+                href="/templates"
+                className="font-medium text-foreground underline-offset-2 hover:underline"
+              >
+                Go to Templates
+              </Link>
+            </div>
           ) : null}
         </div>
 
-        {bodyParams.length > 0 ? (
-          <div className="space-y-2">
-            <Label>Body variables</Label>
-            <div className="space-y-2">
-              {bodyParams.map((v, i) => (
-                <Input
-                  key={i}
-                  value={v}
-                  onChange={(e) => {
-                    const next = [...bodyParams];
-                    next[i] = e.target.value;
-                    setBodyParams(next);
-                  }}
-                  placeholder={`{{${i + 1}}}`}
-                />
-              ))}
-            </div>
+        {bodyParams.length > 0 || needsHeader || slots.length > 0 ? (
+          <div className="space-y-3">
+            <Label>Template variables</Label>
+            <p className="text-xs text-muted-foreground">
+              Use merge tokens in any field:{" "}
+              <code className="rounded bg-muted px-1">{"{{contact.name}}"}</code>{" "}
+              or{" "}
+              <code className="rounded bg-muted px-1">{"{{contact.phone}}"}</code>
+            </p>
+            {needsHeader ? (
+              <Input
+                value={headerText}
+                onChange={(e) => setHeaderText(e.target.value)}
+                placeholder="Header {{1}}"
+              />
+            ) : null}
+            {bodyParams.map((v, i) => (
+              <Input
+                key={i}
+                value={v}
+                onChange={(e) => {
+                  const next = [...bodyParams];
+                  next[i] = e.target.value;
+                  setBodyParams(next);
+                }}
+                placeholder={`Body {{${i + 1}}}`}
+              />
+            ))}
+            {slots.map((s) => (
+              <Input
+                key={s.index}
+                value={buttonParams[s.index] ?? ""}
+                onChange={(e) =>
+                  setButtonParams((prev) => ({
+                    ...prev,
+                    [s.index]: e.target.value,
+                  }))
+                }
+                placeholder={
+                  s.kind === "url"
+                    ? `${s.label} URL suffix`
+                    : `${s.label} code`
+                }
+              />
+            ))}
           </div>
         ) : null}
 
-        <div className="space-y-2">
-          <Label>Audience tags (any match)</Label>
-          {tags.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Create tags on Customers first, then assign them to contacts.
+        {selectedTemplate?.body_text ? (
+          <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3">
+            <p className="text-xs font-medium text-muted-foreground">Preview</p>
+            <p className="whitespace-pre-wrap text-sm">
+              {fillBodyPreview(selectedTemplate.body_text, bodyParams)}
             </p>
-          ) : (
-            <ul className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border p-3">
-              {tags.map((tag) => {
-                const checked = selectedTagIds.includes(tag.id);
-                return (
-                  <li key={tag.id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`tag-${tag.id}`}
-                      checked={checked}
-                      onCheckedChange={(v) => {
-                        setSelectedTagIds((prev) =>
-                          v
-                            ? [...prev, tag.id]
-                            : prev.filter((id) => id !== tag.id),
-                        );
-                      }}
-                    />
-                    <label
-                      htmlFor={`tag-${tag.id}`}
-                      className="text-sm leading-none"
-                    >
-                      {tag.name}
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+          </div>
+        ) : null}
+
+        <CampaignAudienceFields
+          mode={audienceMode}
+          onModeChange={setAudienceMode}
+          tags={tags}
+          selectedTagIds={selectedTagIds}
+          onSelectedTagIdsChange={setSelectedTagIds}
+          tagMatch={tagMatch}
+          onTagMatchChange={setTagMatch}
+          excludeTagIds={excludeTagIds}
+          onExcludeTagIdsChange={setExcludeTagIds}
+          previewCount={previewCount}
+          previewLoading={previewLoading}
+        />
 
         <div className="space-y-2">
           <Label htmlFor="scheduled">Schedule (optional)</Label>
@@ -350,18 +462,24 @@ export default function NewBroadcastPage() {
         <div className="flex flex-wrap gap-2 pt-2">
           <Button
             variant="outline"
-            disabled={saving}
+            disabled={saving || !name.trim() || !selectedTemplate || !audienceFilter}
             onClick={() => void save("draft")}
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save draft
           </Button>
           {scheduledAt ? (
-            <Button disabled={saving} onClick={() => void save("schedule")}>
+            <Button
+              disabled={saving || !canSend}
+              onClick={() => void save("schedule")}
+            >
               Schedule
             </Button>
           ) : (
-            <Button disabled={saving} onClick={() => void save("now")}>
+            <Button
+              disabled={saving || !canSend}
+              onClick={() => void save("now")}
+            >
               Send now
             </Button>
           )}

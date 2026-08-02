@@ -10,7 +10,6 @@ export type WhatsAppConfigRow = {
   verify_token: string | null;
   status: string;
   label?: string | null;
-  employee_id?: string | null;
   is_primary?: boolean;
   connected_at?: string | null;
   registered_at?: string | null;
