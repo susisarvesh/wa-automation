@@ -36,7 +36,10 @@ import {
   needsHeaderText,
   requiredVarsFilled,
 } from "@/lib/broadcasts/template-fields";
-import { humanizeMetaError } from "@/lib/whatsapp/meta-errors";
+import {
+  humanizeMetaError,
+  isWorkspaceVisibleTemplateName,
+} from "@/lib/whatsapp/meta-errors";
 
 type RecipientRow = BroadcastRecipient & {
   contact?: { id: string; name?: string; phone?: string } | null;
@@ -181,7 +184,11 @@ export default function BroadcastDetailPage() {
           .order("name"),
       ]);
       setTags((tagRows ?? []) as Tag[]);
-      setTemplates((tmplRows ?? []) as MessageTemplate[]);
+      setTemplates(
+        ((tmplRows ?? []) as MessageTemplate[]).filter((row) =>
+          isWorkspaceVisibleTemplateName(row.name),
+        ),
+      );
     })();
   }, [isAccessApproved, broadcast?.status, supabase]);
 
@@ -271,7 +278,11 @@ export default function BroadcastDetailPage() {
         .select("*")
         .eq("status", "APPROVED")
         .order("name");
-      setTemplates((tmplRows ?? []) as MessageTemplate[]);
+      setTemplates(
+        ((tmplRows ?? []) as MessageTemplate[]).filter((row) =>
+          isWorkspaceVisibleTemplateName(row.name),
+        ),
+      );
       toast.success("Templates synced");
     } finally {
       setSyncing(false);

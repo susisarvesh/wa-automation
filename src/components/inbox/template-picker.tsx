@@ -22,6 +22,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
+import { isWorkspaceVisibleTemplateName } from "@/lib/whatsapp/meta-errors";
 import { useTranslations } from "next-intl";
 
 export interface TemplateSendValues {
@@ -122,7 +123,11 @@ export function TemplatePicker({
         console.error("Failed to fetch templates:", error);
         setTemplates([]);
       } else {
-        setTemplates((data as MessageTemplate[]) ?? []);
+        setTemplates(
+          ((data as MessageTemplate[]) ?? []).filter((row) =>
+            isWorkspaceVisibleTemplateName(row.name),
+          ),
+        );
       }
       setLoading(false);
     })();

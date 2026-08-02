@@ -15,7 +15,11 @@ import { useTranslations } from 'next-intl';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { templateStatusConfig } from '@/lib/template-status';
-import { humanizeMetaError } from '@/lib/whatsapp/meta-errors';
+import {
+  humanizeMetaError,
+  isLikelyMetaSampleTemplateName,
+  isWorkspaceVisibleTemplateName,
+} from '@/lib/whatsapp/meta-errors';
 import type { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,14 +64,26 @@ export function TemplateCatalog() {
         .eq('account_id', accountId)
         .order('created_at', { ascending: false });
       if (error) throw error;
-      setTemplates((data ?? []) as MessageTemplate[]);
+      const rows = (data ?? []) as MessageTemplate[];
+      const sampleIds = rows
+        .filter((row) => isLikelyMetaSampleTemplateName(row.name))
+        .map((row) => row.id);
+      if (sampleIds.length > 0 && canEditSettings) {
+        await supabase
+          .from('message_templates')
+          .delete()
+          .in('id', sampleIds);
+      }
+      setTemplates(
+        rows.filter((row) => isWorkspaceVisibleTemplateName(row.name)),
+      );
     } catch (err) {
       console.error(err);
       toast.error(t('toastLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [accountId, supabase, t]);
+  }, [accountId, canEditSettings, supabase, t]);
 
   useEffect(() => {
     if (authLoading) return;

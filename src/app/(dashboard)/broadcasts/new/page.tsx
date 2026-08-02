@@ -16,7 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { MessageTemplate, Tag } from "@/types";
 import { cn } from "@/lib/utils";
-import { humanizeMetaError } from "@/lib/whatsapp/meta-errors";
+import {
+  humanizeMetaError,
+  isWorkspaceVisibleTemplateName,
+} from "@/lib/whatsapp/meta-errors";
 import {
   CampaignAudienceFields,
   buildAudienceFilter,
@@ -58,7 +61,11 @@ export default function NewBroadcastPage() {
       .select("*")
       .eq("status", "APPROVED")
       .order("name");
-    setTemplates((tmplRows ?? []) as MessageTemplate[]);
+    setTemplates(
+      ((tmplRows ?? []) as MessageTemplate[]).filter((row) =>
+        isWorkspaceVisibleTemplateName(row.name),
+      ),
+    );
   }, [supabase]);
 
   useEffect(() => {

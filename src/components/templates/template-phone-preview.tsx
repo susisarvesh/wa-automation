@@ -24,9 +24,9 @@ export function TemplatePhonePreview({ form }: { form: TemplateFormData }) {
             <div className="h-8 w-8 rounded-full bg-emerald-700/80" />
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-white">
-                Your business
+                Vsmart Technologies
               </p>
-              <p className="text-[10px] text-zinc-400">WhatsApp preview</p>
+              <p className="text-[10px] text-zinc-400">WhatsApp Business</p>
             </div>
           </div>
 

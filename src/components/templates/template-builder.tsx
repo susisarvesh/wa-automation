@@ -26,16 +26,16 @@ import {
   CATEGORIES,
   COMMON_LANGUAGE_CODES,
   emptyButton,
-  emptyTemplateForm,
   formFromTemplate,
   HEADER_FORMATS,
+  vsmartStarterTemplateForm,
   type HeaderFormat,
   type TemplateFormData,
 } from './template-form';
 import { cn } from '@/lib/utils';
 
 function initialForm(editing: MessageTemplate | null): TemplateFormData {
-  if (!editing) return emptyTemplateForm;
+  if (!editing) return { ...vsmartStarterTemplateForm };
   const form = formFromTemplate(editing);
   if (isLikelyMetaSampleTemplateName(editing.name)) {
     form.name = nextCloneTemplateName(editing.name, [editing.name]);
@@ -211,10 +211,19 @@ export function TemplateBuilder({
               ? 'This is a Meta sample template — it can’t be changed on Meta. Saving creates your own copy for approval.'
               : isEdit
                 ? t('dialogEditDesc')
-                : t('dialogNewDesc')}
+                : 'Prefilled with a Vsmart Technologies service-update style (from vsmarttec.com). Edit the copy, then submit to Meta for approval.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {!isEdit ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setForm({ ...vsmartStarterTemplateForm })}
+            >
+              Reset Vsmart starter
+            </Button>
+          ) : null}
           <Button type="button" variant="outline" onClick={onCancel}>
             {t('cancel')}
           </Button>

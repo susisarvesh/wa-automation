@@ -62,6 +62,33 @@ export const emptyTemplateForm: TemplateFormData = {
   buttons: [],
 };
 
+/** Brand-aligned starter for new templates (vsmarttec.com voice). */
+export const vsmartStarterTemplateForm: TemplateFormData = {
+  name: 'vsmart_service_update_v1',
+  category: 'Utility',
+  language: 'en_US',
+  header_format: 'text',
+  header_content: 'Vsmart Technologies',
+  header_media_url: '',
+  header_sample: '',
+  body_text:
+    'Hi {{1}},\n\nThis is an update from Vsmart Technologies regarding {{2}}.\n\nOur team is here to support you with integrated security and technology solutions.\n\nFor assistance, reply to this message or call us.',
+  body_samples: ['Rajesh', 'your site service visit'],
+  footer_text: 'Vsmart Technologies · 15 years of excellence',
+  buttons: [
+    {
+      type: 'URL',
+      text: 'Visit website',
+      url: 'https://vsmarttec.com',
+    },
+    {
+      type: 'PHONE_NUMBER',
+      text: 'Call us',
+      phone_number: '919444971577',
+    },
+  ],
+};
+
 export function emptyButton(type: TemplateButton['type']): TemplateButton {
   switch (type) {
     case 'QUICK_REPLY':

@@ -30,6 +30,21 @@ export function isLikelyMetaSampleTemplateName(name: string): boolean {
   );
 }
 
+/**
+ * Templates shown in Studio lists / pickers.
+ * Hides Meta demo samples (jaspers_*, hello_world, …). Prefer vsmart_* brand names.
+ */
+export function isWorkspaceVisibleTemplateName(name: string): boolean {
+  if (!name?.trim()) return false;
+  if (isLikelyMetaSampleTemplateName(name)) return false;
+  return true;
+}
+
+/** Brand-preferred workspace templates (vsmart_*). */
+export function isVsmartTemplateName(name: string): boolean {
+  return name.trim().toLowerCase().startsWith("vsmart_");
+}
+
 export function humanizeMetaError(raw: string | undefined | null): string {
   const msg = (raw ?? "").trim();
   if (!msg) return "Something went wrong talking to Meta. Try again.";

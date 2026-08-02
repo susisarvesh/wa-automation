@@ -7,6 +7,7 @@ import {
   toErrorResponse,
 } from '@/lib/auth/account'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { isLikelyMetaSampleTemplateName } from '@/lib/whatsapp/meta-errors'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
 
@@ -197,9 +198,16 @@ export async function POST() {
 
     let inserted = 0
     let updated = 0
+    let skippedSamples = 0
     const errors: { name: string; language: string; message: string }[] = []
 
     for (const t of metaTemplates) {
+      // Never import Meta demo/sample HSMs (jaspers_*, hello_world, …).
+      if (isLikelyMetaSampleTemplateName(t.name)) {
+        skippedSamples++
+        continue
+      }
+
       const body = (t.components ?? []).find((c) => c.type === 'BODY')
       const header = (t.components ?? []).find((c) => c.type === 'HEADER')
       const footer = (t.components ?? []).find((c) => c.type === 'FOOTER')
@@ -286,11 +294,31 @@ export async function POST() {
       }
     }
 
+    // Drop any previously synced sample rows from this workspace.
+    const { data: localSamples } = await supabase
+      .from('message_templates')
+      .select('id, name')
+      .eq('account_id', accountId)
+
+    let purgedSamples = 0
+    const sampleIds = (localSamples ?? [])
+      .filter((r) => isLikelyMetaSampleTemplateName(String(r.name ?? '')))
+      .map((r) => r.id as string)
+    if (sampleIds.length > 0) {
+      const { error: purgeErr } = await supabase
+        .from('message_templates')
+        .delete()
+        .in('id', sampleIds)
+      if (!purgeErr) purgedSamples = sampleIds.length
+    }
+
     return NextResponse.json({
       success: errors.length === 0,
       total: metaTemplates.length,
       inserted,
       updated,
+      skipped_samples: skippedSamples,
+      purged_samples: purgedSamples,
       errors,
       truncated: pageCount >= PAGE_CAP && nextUrl !== null,
     })
