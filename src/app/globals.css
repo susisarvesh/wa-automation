@@ -186,3 +186,96 @@ html[data-mode="dark"] .vsmart-mesh {
     radial-gradient(ellipse 60% 50% at 100% 0%, #f9731626, transparent 50%),
     linear-gradient(180deg, #0b1224 0%, #121a2f 100%);
 }
+
+/* Login scene — brand atmosphere + entrance motion */
+.login-scene {
+  background:
+    radial-gradient(ellipse 70% 55% at 0% 0%, #3659c922, transparent 55%),
+    radial-gradient(ellipse 55% 45% at 100% 10%, #f9731618, transparent 50%),
+    radial-gradient(ellipse 50% 40% at 70% 100%, #3659c914, transparent 55%),
+    linear-gradient(165deg, #f7f8fc 0%, #e8ecf7 48%, #f3f5fa 100%);
+}
+
+.login-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  background-image:
+    linear-gradient(to right, #3659c912 1px, transparent 1px),
+    linear-gradient(to bottom, #3659c912 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 20%, transparent 75%);
+}
+
+.login-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  will-change: transform;
+}
+
+.login-orb-a {
+  top: -8%;
+  left: -6%;
+  width: min(42vw, 420px);
+  height: min(42vw, 420px);
+  background: #3659c928;
+  animation: login-drift 18s ease-in-out infinite;
+}
+
+.login-orb-b {
+  top: 12%;
+  right: -8%;
+  width: min(36vw, 360px);
+  height: min(36vw, 360px);
+  background: #f9731620;
+  animation: login-drift 22s ease-in-out infinite reverse;
+}
+
+.login-orb-c {
+  bottom: -12%;
+  left: 35%;
+  width: min(40vw, 380px);
+  height: min(40vw, 380px);
+  background: #3659c918;
+  animation: login-drift 26s ease-in-out infinite 2s;
+}
+
+@keyframes login-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(2%, 4%) scale(1.06);
+  }
+}
+
+@keyframes login-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.login-rise {
+  animation: login-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.login-rise-delay {
+  animation: login-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-orb-a,
+  .login-orb-b,
+  .login-orb-c,
+  .login-rise,
+  .login-rise-delay {
+    animation: none;
+  }
+}

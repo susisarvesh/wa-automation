@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, MessageSquareText, Sparkles, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
@@ -37,59 +37,103 @@ function LoginForm() {
       setError(
         err instanceof Error
           ? err.message
-          : "Could not start Google sign-in. Check Supabase Google provider settings.",
+          : "Could not start Google sign-in. Please try again.",
       );
       setLoading(false);
     }
   }
 
   return (
-    <div className="vsmart-shape w-full max-w-md border border-border bg-card p-8 shadow-sm">
-      <div className="mb-6 flex flex-col items-center text-center">
-        <Image
-          src="/brand/vsmart-mark.png"
-          alt="Vsmart"
-          width={56}
-          height={56}
-          className="mb-3 h-14 w-14 object-contain"
-          priority
-        />
-        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-          Vsmart Technologies
-        </p>
-        <h1 className="font-heading mt-2 text-2xl font-bold tracking-tight">
-          Sign in to WhatsApp Studio
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Continue with Google — free via Supabase Auth. No passwords to manage.
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center gap-12 px-6 py-12 lg:flex-row lg:items-center lg:gap-20 lg:px-10 lg:py-16">
+      {/* Brand column — hero signal */}
+      <section className="login-rise flex-1 space-y-8 lg:max-w-xl">
+        <div className="flex items-center gap-3">
+          <Image
+            src="/brand/vsmart-mark.png"
+            alt=""
+            width={48}
+            height={48}
+            className="h-12 w-12 object-contain"
+            priority
+          />
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+              Vsmart Technologies
+            </p>
+            <p className="text-sm text-muted-foreground">Taking future ahead</p>
+          </div>
+        </div>
 
-      {error && (
-        <p className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </p>
-      )}
+        <div className="space-y-4">
+          <h1 className="font-heading text-4xl font-bold leading-[1.05] tracking-tight text-foreground sm:text-5xl lg:text-[3.5rem]">
+            WhatsApp Studio
+          </h1>
+          <p className="max-w-md text-base leading-relaxed text-muted-foreground sm:text-lg">
+            Campaigns, inbox, and automations for teams that live on WhatsApp —
+            built for Vsmart CRM.
+          </p>
+        </div>
 
-      <Button
-        size="lg"
-        className="w-full rounded-xl"
-        onClick={signInWithGoogle}
-        disabled={loading}
-      >
-        {loading ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        ) : (
-          <GoogleIcon className="mr-2 h-4 w-4" />
-        )}
-        Continue with Google
-      </Button>
+        <ul className="hidden gap-6 sm:flex">
+          {[
+            { icon: MessageSquareText, label: "Shared inbox" },
+            { icon: Users, label: "CSV campaigns" },
+            { icon: Sparkles, label: "Automations" },
+          ].map(({ icon: Icon, label }) => (
+            <li
+              key={label}
+              className="flex items-center gap-2 text-sm text-foreground/80"
+            >
+              <span className="vsmart-shape flex h-8 w-8 items-center justify-center bg-primary/10 text-primary">
+                <Icon className="h-4 w-4" strokeWidth={1.75} />
+              </span>
+              {label}
+            </li>
+          ))}
+        </ul>
+      </section>
 
-      <p className="mt-4 text-center text-[11px] text-muted-foreground">
-        Enable Google under Supabase → Authentication → Providers, and add{" "}
-        <code className="rounded bg-muted px-1">/auth/callback</code> to redirect
-        URLs.
-      </p>
+      {/* Sign-in — interaction container */}
+      <section className="login-rise-delay w-full max-w-md shrink-0">
+        <div className="vsmart-shape border border-border/80 bg-card/90 p-8 backdrop-blur-sm sm:p-9">
+          <div className="mb-7 space-y-2">
+            <h2 className="font-heading text-xl font-semibold tracking-tight">
+              Sign in
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Use your Google work account. No password to manage.
+            </p>
+          </div>
+
+          {error ? (
+            <p
+              role="alert"
+              className="mb-4 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              {error}
+            </p>
+          ) : null}
+
+          <Button
+            size="lg"
+            className="h-12 w-full gap-2.5 text-[15px] font-medium"
+            onClick={signInWithGoogle}
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <GoogleIcon className="h-4 w-4" />
+            )}
+            Continue with Google
+          </Button>
+
+          <p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">
+            By continuing you agree to access WhatsApp Studio for your
+            workspace. Need access? Ask a Vsmart admin.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }
@@ -98,7 +142,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex h-40 items-center justify-center">
+        <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       }
