@@ -44,6 +44,7 @@ export default function NewBroadcastPage() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [tagMatch, setTagMatch] = useState<"any" | "all">("any");
   const [excludeTagIds, setExcludeTagIds] = useState<string[]>([]);
+  const [csvContactIds, setCsvContactIds] = useState<string[]>([]);
   const [previewCount, setPreviewCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -87,13 +88,19 @@ export default function NewBroadcastPage() {
         selectedTagIds,
         tagMatch,
         excludeTagIds,
+        csvContactIds,
       }),
-    [audienceMode, selectedTagIds, tagMatch, excludeTagIds],
+    [audienceMode, selectedTagIds, tagMatch, excludeTagIds, csvContactIds],
   );
 
   useEffect(() => {
     if (!isAccessApproved || !audienceFilter) {
       setPreviewCount(null);
+      return;
+    }
+    if (audienceFilter.mode === "contacts") {
+      setPreviewCount(audienceFilter.contact_ids.length);
+      setPreviewLoading(false);
       return;
     }
     let cancelled = false;
@@ -405,7 +412,10 @@ export default function NewBroadcastPage() {
 
         <CampaignAudienceFields
           mode={audienceMode}
-          onModeChange={setAudienceMode}
+          onModeChange={(m) => {
+            setAudienceMode(m);
+            if (m !== "csv") setCsvContactIds([]);
+          }}
           tags={tags}
           selectedTagIds={selectedTagIds}
           onSelectedTagIdsChange={setSelectedTagIds}
@@ -413,6 +423,8 @@ export default function NewBroadcastPage() {
           onTagMatchChange={setTagMatch}
           excludeTagIds={excludeTagIds}
           onExcludeTagIdsChange={setExcludeTagIds}
+          csvContactIds={csvContactIds}
+          onCsvContactIdsChange={setCsvContactIds}
           previewCount={previewCount}
           previewLoading={previewLoading}
         />

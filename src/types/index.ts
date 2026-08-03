@@ -140,6 +140,8 @@ export interface CustomField {
   /** Tenancy key — NOT NULL since migration 017. */
   account_id: string;
   field_name: string;
+  /** Slug for {{contact.custom.<field_key>}} — migration 048. */
+  field_key?: string;
   field_type: string;
   field_options?: Record<string, unknown>;
   created_at: string;
@@ -422,6 +424,8 @@ export interface Broadcast {
   read_count: number;
   replied_count: number;
   failed_count: number;
+  /** Quick-reply + tracked URL button clicks — migration 048. */
+  clicked_count?: number;
   started_at?: string;
   completed_at?: string;
   created_at: string;
@@ -442,6 +446,10 @@ export interface BroadcastRecipient {
   delivered_at?: string;
   read_at?: string;
   replied_at?: string;
+  /** Quick-reply button payload when attributed — migration 048. */
+  reply_payload?: string;
+  /** First QR or tracked URL click — migration 048. */
+  clicked_at?: string;
   error_message?: string;
   /**
    * Meta's message id, persisted when the broadcast send succeeds so

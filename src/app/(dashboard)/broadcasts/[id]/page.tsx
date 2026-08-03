@@ -100,6 +100,7 @@ export default function BroadcastDetailPage() {
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [tagMatch, setTagMatch] = useState<"any" | "all">("any");
   const [excludeTagIds, setExcludeTagIds] = useState<string[]>([]);
+  const [csvContactIds, setCsvContactIds] = useState<string[]>([]);
   const [previewCount, setPreviewCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -149,14 +150,16 @@ export default function BroadcastDetailPage() {
       const af = parseAudienceFilter(b.audience_filter);
       if (af?.mode === "all") {
         setAudienceMode("all");
+        setCsvContactIds([]);
       } else if (af?.mode === "tags") {
         setAudienceMode("tags");
         setSelectedTagIds(af.tag_ids);
         setTagMatch(af.tag_match ?? "any");
         setExcludeTagIds(af.exclude_tag_ids ?? []);
+        setCsvContactIds([]);
       } else if (af?.mode === "contacts") {
-        // Retry drafts — show as fixed contact list; keep mode tags UI disabled via preview only
-        setAudienceMode("all");
+        setAudienceMode("csv");
+        setCsvContactIds(af.contact_ids);
         setPreviewCount(af.contact_ids.length);
       }
     }
@@ -194,13 +197,12 @@ export default function BroadcastDetailPage() {
 
   const audienceFilter = useMemo(() => {
     if (broadcast?.status !== "draft") return null;
-    const af = parseAudienceFilter(broadcast.audience_filter);
-    if (af?.mode === "contacts") return af;
     return buildAudienceFilter({
       mode: audienceMode,
       selectedTagIds,
       tagMatch,
       excludeTagIds,
+      csvContactIds,
     });
   }, [
     broadcast,
@@ -208,6 +210,7 @@ export default function BroadcastDetailPage() {
     selectedTagIds,
     tagMatch,
     excludeTagIds,
+    csvContactIds,
   ]);
 
   useEffect(() => {
@@ -480,8 +483,8 @@ export default function BroadcastDetailPage() {
   }
 
   const isDraft = broadcast.status === "draft";
-  const isContactsAudience =
-    parseAudienceFilter(broadcast.audience_filter)?.mode === "contacts";
+  const isRetryDraft =
+    isDraft && /\(retry failed\)/i.test(broadcast.name);
   const totalPages = Math.max(1, Math.ceil(recipientsTotal / limit));
 
   return (
@@ -566,13 +569,14 @@ export default function BroadcastDetailPage() {
         </div>
       </div>
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {[
           ["Recipients", broadcast.total_recipients],
           ["Sent", broadcast.sent_count],
           ["Delivered", broadcast.delivered_count],
           ["Read", broadcast.read_count],
           ["Replied", broadcast.replied_count],
+          ["Clicked", broadcast.clicked_count ?? 0],
           ["Failed", broadcast.failed_count],
         ].map(([label, value]) => (
           <div
@@ -585,6 +589,46 @@ export default function BroadcastDetailPage() {
         ))}
       </dl>
 
+      {!isDraft ? (
+        <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+          {(() => {
+            const sent = Math.max(1, broadcast.sent_count || 0);
+            const readPct = Math.round(
+              ((broadcast.read_count || 0) / sent) * 100,
+            );
+            const replyPct = Math.round(
+              ((broadcast.replied_count || 0) / sent) * 100,
+            );
+            const clickPct = Math.round(
+              ((broadcast.clicked_count ?? 0) / sent) * 100,
+            );
+            return (
+              <>
+                <span>Read rate {readPct}%</span>
+                <span>Reply rate {replyPct}%</span>
+                <span>Click rate {clickPct}%</span>
+              </>
+            );
+          })()}
+        </div>
+      ) : null}
+
+      {!isDraft ? (
+        <p className="text-xs text-muted-foreground">
+          Clicks include quick-reply button taps (Meta webhook) and tracked URL
+          opens via <code className="font-mono">/r/…</code>. URL CTR requires a
+          dynamic URL button whose template base is{" "}
+          <code className="font-mono">
+            {(process.env.NEXT_PUBLIC_SITE_URL || "https://your-domain").replace(
+              /\/$/,
+              "",
+            )}
+            /r/{"{{1}}"}
+          </code>
+          .
+        </p>
+      ) : null}
+
       {isDraft ? (
         <div className="space-y-5 rounded-lg border border-border p-4">
           <div className="space-y-2">
@@ -596,82 +640,86 @@ export default function BroadcastDetailPage() {
             />
           </div>
 
-          {!isContactsAudience ? (
-            <>
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Label htmlFor="edit-template">Template</Label>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={syncing}
-                    onClick={() => void syncTemplates()}
-                  >
-                    {syncing ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    )}
-                    Sync
-                  </Button>
-                </div>
-                <select
-                  id="edit-template"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={templateKey}
-                  onChange={(e) => setTemplateKey(e.target.value)}
-                >
-                  <option value="">Select approved template…</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={`${t.name}::${t.language}`}>
-                      {t.name} ({t.language})
-                    </option>
-                  ))}
-                </select>
-                {templates.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No APPROVED templates.{" "}
-                    <Link href="/templates" className="underline">
-                      Go to Templates
-                    </Link>
-                  </p>
-                ) : null}
-              </div>
-
-              <TemplateVariableFields
-                mode="merge"
-                bodyText={selectedTemplate?.body_text}
-                bodyParams={bodyParams}
-                onBodyParamsChange={setBodyParams}
-                showHeader={needsHeader}
-                headerText={headerText}
-                onHeaderTextChange={setHeaderText}
-                buttonSlots={slots}
-                buttonParams={buttonParams}
-                onButtonParamsChange={setButtonParams}
-              />
-
-              <CampaignAudienceFields
-                mode={audienceMode}
-                onModeChange={setAudienceMode}
-                tags={tags}
-                selectedTagIds={selectedTagIds}
-                onSelectedTagIdsChange={setSelectedTagIds}
-                tagMatch={tagMatch}
-                onTagMatchChange={setTagMatch}
-                excludeTagIds={excludeTagIds}
-                onExcludeTagIdsChange={setExcludeTagIds}
-                previewCount={previewCount}
-                previewLoading={previewLoading}
-              />
-            </>
-          ) : (
+          {isRetryDraft ? (
             <p className="text-sm text-muted-foreground">
-              This draft targets {previewCount ?? "—"} failed contacts from a
-              previous campaign. Save and send when ready.
+              Retry draft: {previewCount ?? csvContactIds.length} failed
+              contacts from the previous campaign. Change template or audience
+              if needed, then save and send.
             </p>
-          )}
+          ) : null}
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label htmlFor="edit-template">Template</Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={syncing}
+                onClick={() => void syncTemplates()}
+              >
+                {syncing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Sync
+              </Button>
+            </div>
+            <select
+              id="edit-template"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={templateKey}
+              onChange={(e) => setTemplateKey(e.target.value)}
+            >
+              <option value="">Select approved template…</option>
+              {templates.map((t) => (
+                <option key={t.id} value={`${t.name}::${t.language}`}>
+                  {t.name} ({t.language})
+                </option>
+              ))}
+            </select>
+            {templates.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No APPROVED templates.{" "}
+                <Link href="/templates" className="underline">
+                  Go to Templates
+                </Link>
+              </p>
+            ) : null}
+          </div>
+
+          <TemplateVariableFields
+            mode="merge"
+            bodyText={selectedTemplate?.body_text}
+            bodyParams={bodyParams}
+            onBodyParamsChange={setBodyParams}
+            showHeader={needsHeader}
+            headerText={headerText}
+            onHeaderTextChange={setHeaderText}
+            buttonSlots={slots}
+            buttonParams={buttonParams}
+            onButtonParamsChange={setButtonParams}
+          />
+
+          <CampaignAudienceFields
+            mode={audienceMode}
+            onModeChange={(m) => {
+              setAudienceMode(m);
+              if (m !== "csv") setCsvContactIds([]);
+            }}
+            tags={tags}
+            selectedTagIds={selectedTagIds}
+            onSelectedTagIdsChange={setSelectedTagIds}
+            tagMatch={tagMatch}
+            onTagMatchChange={setTagMatch}
+            excludeTagIds={excludeTagIds}
+            onExcludeTagIdsChange={setExcludeTagIds}
+            csvContactIds={csvContactIds}
+            onCsvContactIdsChange={setCsvContactIds}
+            previewCount={previewCount}
+            previewLoading={previewLoading}
+          />
 
           <div className="space-y-2">
             <Label htmlFor="edit-scheduled">Schedule (optional)</Label>

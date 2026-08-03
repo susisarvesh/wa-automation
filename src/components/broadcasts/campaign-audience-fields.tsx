@@ -1,11 +1,19 @@
 "use client";
 
+import { useRef, useState } from "react";
+import { toast } from "sonner";
+import { Loader2, Upload } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
+import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
+import { parseContactCsv } from "@/lib/contacts/parse-contact-csv";
+import { resolveContactIdsFromCsvRows } from "@/lib/broadcasts/csv-audience";
 import type { Tag } from "@/types";
 import type { BroadcastAudienceFilter } from "@/lib/broadcasts/audience";
 
-export type AudienceMode = "all" | "tags";
+export type AudienceMode = "all" | "tags" | "csv";
 
 type Props = {
   mode: AudienceMode;
@@ -17,6 +25,8 @@ type Props = {
   onTagMatchChange: (m: "any" | "all") => void;
   excludeTagIds: string[];
   onExcludeTagIdsChange: (ids: string[]) => void;
+  csvContactIds: string[];
+  onCsvContactIdsChange: (ids: string[]) => void;
   previewCount: number | null;
   previewLoading: boolean;
 };
@@ -26,8 +36,13 @@ export function buildAudienceFilter(props: {
   selectedTagIds: string[];
   tagMatch: "any" | "all";
   excludeTagIds: string[];
+  csvContactIds: string[];
 }): BroadcastAudienceFilter | null {
   if (props.mode === "all") return { mode: "all" };
+  if (props.mode === "csv") {
+    if (props.csvContactIds.length === 0) return null;
+    return { mode: "contacts", contact_ids: props.csvContactIds };
+  }
   if (props.selectedTagIds.length === 0) return null;
   return {
     mode: "tags",
@@ -49,9 +64,58 @@ export function CampaignAudienceFields({
   onTagMatchChange,
   excludeTagIds,
   onExcludeTagIdsChange,
+  csvContactIds,
+  onCsvContactIdsChange,
   previewCount,
   previewLoading,
 }: Props) {
+  const { accountId, canEditSettings } = useAuth();
+  const supabase = createClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [fileLabel, setFileLabel] = useState<string | null>(null);
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !accountId) return;
+    setUploading(true);
+    setFileLabel(file.name);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not signed in");
+
+      const text = await file.text();
+      const { rows } = parseContactCsv(text);
+      if (rows.length === 0) {
+        toast.error("No valid rows (need a phone column)");
+        onCsvContactIdsChange([]);
+        return;
+      }
+
+      const result = await resolveContactIdsFromCsvRows(supabase, {
+        accountId,
+        userId: user.id,
+        rows,
+        canCreateTags: canEditSettings,
+      });
+      onCsvContactIdsChange(result.contactIds);
+      toast.success(
+        `Audience ready: ${result.contactIds.length} contacts (${result.created} new, ${result.matched} matched)`,
+      );
+      if (result.failed > 0) {
+        toast.warning(`${result.failed} rows failed`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "CSV upload failed");
+      onCsvContactIdsChange([]);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   return (
     <div className="space-y-3">
       <Label>Audience</Label>
@@ -73,6 +137,15 @@ export function CampaignAudienceFields({
             onChange={() => onModeChange("tags")}
           />
           By tags
+        </label>
+        <label className="flex items-center gap-2">
+          <input
+            type="radio"
+            name="audience-mode"
+            checked={mode === "csv"}
+            onChange={() => onModeChange("csv")}
+          />
+          Upload CSV
         </label>
       </div>
 
@@ -160,6 +233,43 @@ export function CampaignAudienceFields({
               </ul>
             </>
           )}
+        </div>
+      ) : null}
+
+      {mode === "csv" ? (
+        <div className="space-y-2 rounded-md border border-border p-3">
+          <p className="text-xs text-muted-foreground">
+            Columns: <code>phone</code> (required), optional{" "}
+            <code>name,email,company,tags</code>. Existing phones are matched;
+            new contacts are created.
+          </p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => void onFile(e)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={uploading || !accountId}
+            onClick={() => fileRef.current?.click()}
+          >
+            {uploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            {fileLabel ? "Replace CSV" : "Choose CSV"}
+          </Button>
+          {fileLabel ? (
+            <p className="text-xs text-muted-foreground">
+              {fileLabel} · {csvContactIds.length} contact
+              {csvContactIds.length === 1 ? "" : "s"} loaded
+            </p>
+          ) : null}
         </div>
       ) : null}
 

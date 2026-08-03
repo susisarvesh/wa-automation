@@ -93,6 +93,7 @@ export async function materializeRecipients(
       read_count: 0,
       replied_count: 0,
       failed_count: 0,
+      clicked_count: 0,
       updated_at: new Date().toISOString(),
     })
     .eq("id", broadcast.id);

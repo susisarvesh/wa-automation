@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { slugify } from '@/lib/slugify';
 
 interface CustomFieldsManagerProps {
   open: boolean;
@@ -106,9 +107,11 @@ export function CustomFieldsPanel() {
       return;
     }
 
+    const fieldKey = slugify(name, 'field');
     setCreating(true);
     const { error } = await supabase.from('custom_fields').insert({
       field_name: name,
+      field_key: fieldKey,
       field_type: 'text',
       user_id: user.id,
       account_id: accountId,
@@ -139,7 +142,10 @@ export function CustomFieldsPanel() {
     setBusyId(field.id);
     const { error } = await supabase
       .from('custom_fields')
-      .update({ field_name: name })
+      .update({
+        field_name: name,
+        field_key: slugify(name, 'field'),
+      })
       .eq('id', field.id);
     setBusyId(null);
     if (error) {

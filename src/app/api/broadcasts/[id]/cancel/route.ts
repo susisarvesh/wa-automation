@@ -60,6 +60,7 @@ export async function POST(_request: Request, { params }: Params) {
         read_count: 0,
         replied_count: 0,
         failed_count: 0,
+        clicked_count: 0,
         started_at: null,
         completed_at: null,
         updated_at: now,

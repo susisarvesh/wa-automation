@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { fillBodyPreview } from '@/lib/broadcasts/template-fields';
 import type { CampaignButtonSlot } from '@/lib/broadcasts/template-fields';
+import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
 export type ContactFieldHints = {
@@ -21,6 +22,12 @@ export const CONTACT_FIELD_CHIPS = [
   { key: 'phone', label: 'Phone', token: '{{contact.phone}}' },
   { key: 'email', label: 'Email', token: '{{contact.email}}' },
 ] as const;
+
+export type MergeChip = {
+  key: string;
+  label: string;
+  token: string;
+};
 
 type FocusTarget =
   | { kind: 'header' }
@@ -61,16 +68,57 @@ export function TemplateVariableFields({
   const [focus, setFocus] = useState<FocusTarget | null>(
     bodyParams.length > 0 ? { kind: 'body', index: 0 } : showHeader ? { kind: 'header' } : null,
   );
+  const [customChips, setCustomChips] = useState<MergeChip[]>([]);
+
+  useEffect(() => {
+    if (mode !== 'merge') {
+      setCustomChips([]);
+      return;
+    }
+    let cancelled = false;
+    const supabase = createClient();
+    void (async () => {
+      const { data } = await supabase
+        .from('custom_fields')
+        .select('field_name, field_key')
+        .order('field_name');
+      if (cancelled) return;
+      const chips: MergeChip[] = [];
+      for (const row of data ?? []) {
+        const key = String(row.field_key ?? '').trim();
+        if (!key) continue;
+        chips.push({
+          key: `custom.${key}`,
+          label: String(row.field_name ?? key),
+          token: `{{contact.custom.${key}}}`,
+        });
+      }
+      setCustomChips(chips);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode]);
 
   const hasFields =
     showHeader || bodyParams.length > 0 || buttonSlots.length > 0;
   if (!hasFields) return null;
 
-  function applyChip(chip: (typeof CONTACT_FIELD_CHIPS)[number]) {
+  const chips: MergeChip[] = [
+    ...CONTACT_FIELD_CHIPS.map((c) => ({
+      key: c.key,
+      label: c.label,
+      token: c.token,
+    })),
+    ...customChips,
+  ];
+
+  function applyChip(chip: MergeChip) {
+    const builtinKey = chip.key as keyof ContactFieldHints;
     const value =
       mode === 'merge'
         ? chip.token
-        : String(contact?.[chip.key] ?? '').trim();
+        : String(contact?.[builtinKey] ?? '').trim();
     if (mode === 'literal' && !value) return;
 
     const target = focus ?? (bodyParams.length > 0 ? { kind: 'body' as const, index: 0 } : null);
@@ -97,15 +145,18 @@ export function TemplateVariableFields({
         <Label>Template variables</Label>
         <p className="text-xs text-muted-foreground">
           {mode === 'merge'
-            ? 'Fill each {{n}} slot. Click a chip to personalize per customer (name, company, …).'
+            ? 'Fill each {{n}} slot. Click a chip to personalize per customer (name, company, custom fields…).'
             : 'Fill each {{n}} slot for this customer. Use chips to insert their saved fields.'}
         </p>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        {CONTACT_FIELD_CHIPS.map((chip) => {
-          const literal = String(contact?.[chip.key] ?? '').trim();
-          const disabled = mode === 'literal' && !literal;
+        {chips.map((chip) => {
+          const builtinKey = chip.key as keyof ContactFieldHints;
+          const literal = String(contact?.[builtinKey] ?? '').trim();
+          const disabled =
+            mode === 'literal' &&
+            (chip.key.startsWith('custom.') || !literal);
           return (
             <Button
               key={chip.key}
@@ -191,19 +242,20 @@ export function TemplateVariableFields({
               })
             }
             placeholder={
-              s.kind === 'url' ? 'URL suffix / path' : 'Copy code value'
+              s.kind === 'url'
+                ? mode === 'merge'
+                  ? 'https://… (tracked if template URL is /r/{{1}})'
+                  : 'URL suffix / path'
+                : 'Copy code value'
             }
           />
         </div>
       ))}
 
-      {bodyText ? (
-        <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3">
-          <p className="text-xs font-medium text-muted-foreground">Preview</p>
-          <p className="whitespace-pre-wrap text-sm">
-            {fillBodyPreview(bodyText, bodyParams)}
-          </p>
-        </div>
+      {mode === 'merge' && bodyText ? (
+        <p className="text-xs text-muted-foreground">
+          Preview: {fillBodyPreview(bodyText, bodyParams)}
+        </p>
       ) : null}
     </div>
   );

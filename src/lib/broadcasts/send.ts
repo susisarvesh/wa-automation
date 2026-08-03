@@ -7,11 +7,15 @@ import { log } from "@/lib/observability/logger";
 import { isMessageTemplate } from "@/lib/whatsapp/template-row-guard";
 import type { MessageTemplate } from "@/types";
 import {
+  buildTrackedUrlButtonParam,
+  looksLikeTrackedDestination,
   mergeButtonParams,
   mergeParamList,
   mergeParamString,
+  type MergeContact,
 } from "@/lib/broadcasts/merge-params";
 import type { SendTimeParams } from "@/lib/whatsapp/template-send-builder";
+import { extractVariableIndices } from "@/lib/whatsapp/template-validators";
 
 const BATCH_SIZE = 25;
 const DELAY_MS = 80;
@@ -166,6 +170,47 @@ export async function processBroadcastSendBatch(
 
   if (rErr) throw new Error(rErr.message);
 
+  const contactIds = (recipients ?? [])
+    .map((r) => r.contact_id as string | null)
+    .filter((id): id is string => Boolean(id));
+
+  /** contact_id → field_key → value */
+  const customByContact = new Map<string, Record<string, string>>();
+  if (contactIds.length > 0) {
+    const { data: fieldDefs } = await admin
+      .from("custom_fields")
+      .select("id, field_key")
+      .eq("account_id", accountId);
+    const keyByFieldId = new Map<string, string>();
+    for (const f of fieldDefs ?? []) {
+      if (f.id && f.field_key) keyByFieldId.set(f.id as string, f.field_key as string);
+    }
+    if (keyByFieldId.size > 0) {
+      const { data: customRows } = await admin
+        .from("contact_custom_values")
+        .select("contact_id, custom_field_id, value")
+        .in("contact_id", contactIds)
+        .in("custom_field_id", [...keyByFieldId.keys()]);
+      for (const row of customRows ?? []) {
+        const cid = row.contact_id as string;
+        const key = keyByFieldId.get(row.custom_field_id as string);
+        if (!cid || !key) continue;
+        const bucket = customByContact.get(cid) ?? {};
+        bucket[key] = String(row.value ?? "");
+        customByContact.set(cid, bucket);
+      }
+    }
+  }
+
+  const urlButtonIndexes = new Set<number>();
+  if (template?.buttons) {
+    template.buttons.forEach((b, i) => {
+      if (b.type === "URL" && extractVariableIndices(b.url ?? "").length > 0) {
+        urlButtonIndexes.add(i);
+      }
+    });
+  }
+
   let sent = 0;
   let failed = 0;
 
@@ -237,11 +282,14 @@ export async function processBroadcastSendBatch(
       continue;
     }
 
-    const mergeContact = {
+    const mergeContact: MergeContact = {
       name: contact?.name ?? null,
       phone: contact?.phone ?? phone,
       company: contact?.company ?? null,
       email: contact?.email ?? null,
+      custom: rec.contact_id
+        ? (customByContact.get(rec.contact_id as string) ?? {})
+        : {},
     };
     const bodyParams = mergeParamList(templateVars.body, mergeContact);
     const headerText =
@@ -252,6 +300,19 @@ export async function processBroadcastSendBatch(
       templateVars.buttonParams,
       mergeContact,
     );
+
+    if (buttonParams) {
+      for (const idx of urlButtonIndexes) {
+        const raw = buttonParams[idx];
+        if (raw && looksLikeTrackedDestination(raw)) {
+          buttonParams[idx] = buildTrackedUrlButtonParam({
+            broadcastId,
+            recipientId: rec.id as string,
+            destination: raw,
+          });
+        }
+      }
+    }
 
     const messageParams: SendTimeParams = {};
     if (bodyParams.length) messageParams.body = bodyParams;

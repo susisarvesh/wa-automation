@@ -48,6 +48,11 @@ interface WhatsAppMessage {
   location?: { latitude: number; longitude: number; name?: string; address?: string }
   reaction?: { message_id: string; emoji: string }
   /**
+   * Template quick-reply taps arrive as type "button" (not interactive).
+   * payload is the button payload Meta registered; text is the label.
+   */
+  button?: { payload?: string; text?: string }
+  /**
    * Set when the customer taps a button or list row on an interactive
    * message we sent. `button_reply.id` / `list_reply.id` is whatever id
    * we put on the button/row when sending — the Flows engine uses this
@@ -497,15 +502,71 @@ async function handleStatusUpdate(
  * broadcast_recipients row, flip it to `replied` so the reply count
  * advances on the parent broadcast.
  *
+ * Prefer matching via Meta context.id → whatsapp_message_id when the
+ * customer replied to a specific outbound (template QR taps include this).
+ * When a button payload is present, also stamp reply_payload + clicked_at.
+ *
  * Runs on a best-effort basis — failures here must not break the
  * main inbound-message flow, so errors are swallowed with a log.
  */
-async function flagBroadcastReplyIfAny(accountId: string, contactId: string) {
+async function flagBroadcastReplyIfAny(
+  accountId: string,
+  contactId: string,
+  opts?: {
+    contextMessageId?: string | null
+    replyPayload?: string | null
+  },
+) {
   try {
-    // Most recent outbound broadcast in this account that hasn't
-    // been replied to yet. Account-scoped so a shared inbox reply
-    // marks the broadcast as replied regardless of which teammate
-    // sent it.
+    const now = new Date().toISOString()
+    const payload = opts?.replyPayload?.trim() || null
+    const patch: Record<string, unknown> = {
+      status: 'replied',
+      replied_at: now,
+    }
+    if (payload) {
+      patch.reply_payload = payload.slice(0, 500)
+      patch.clicked_at = now
+    }
+
+    if (opts?.contextMessageId) {
+      const { data: byWamid, error: wamidErr } = await supabaseAdmin()
+        .from('broadcast_recipients')
+        .select('id, status, clicked_at, broadcasts!inner(account_id)')
+        .eq('whatsapp_message_id', opts.contextMessageId)
+        .eq('broadcasts.account_id', accountId)
+        .eq('contact_id', contactId)
+        .maybeSingle()
+
+      if (!wamidErr && byWamid?.id) {
+        // Already replied without click — still attach payload/click if new.
+        if (byWamid.status === 'replied') {
+          if (payload && !byWamid.clicked_at) {
+            await supabaseAdmin()
+              .from('broadcast_recipients')
+              .update({
+                reply_payload: payload.slice(0, 500),
+                clicked_at: now,
+              })
+              .eq('id', byWamid.id)
+              .is('clicked_at', null)
+          }
+          return
+        }
+        if (['sent', 'delivered', 'read'].includes(byWamid.status as string)) {
+          const { error: updErr } = await supabaseAdmin()
+            .from('broadcast_recipients')
+            .update(patch)
+            .eq('id', byWamid.id)
+          if (updErr) {
+            console.error('Error marking broadcast recipient replied:', updErr)
+          }
+          return
+        }
+      }
+    }
+
+    // Fallback: most recent unreplied outbound for this contact.
     const { data: recs, error } = await supabaseAdmin()
       .from('broadcast_recipients')
       .select('id, status, broadcast_id, broadcasts!inner(account_id)')
@@ -520,7 +581,7 @@ async function flagBroadcastReplyIfAny(accountId: string, contactId: string) {
     const row = recs[0]
     const { error: updErr } = await supabaseAdmin()
       .from('broadcast_recipients')
-      .update({ status: 'replied', replied_at: new Date().toISOString() })
+      .update(patch)
       .eq('id', row.id)
 
     if (updErr) {
@@ -658,7 +719,7 @@ async function processMessage(
   }
 
   // Parse message content based on type
-  const { contentText, mediaUrl, mediaType, interactiveReplyId } =
+  const { contentText, mediaUrl, mediaType, interactiveReplyId, buttonPayload } =
     await parseMessageContent(message, accessToken)
 
   // Resolve swipe-reply context if present. A missing parent is fine —
@@ -699,7 +760,9 @@ async function processMessage(
     ? message.type
     : message.type === 'sticker'
       ? 'image'   // stickers are images
-      : 'text'    // reaction, unknown → text fallback
+      : message.type === 'button'
+        ? 'interactive' // template quick-reply tap
+        : 'text'    // reaction, unknown → text fallback
 
   // Determine whether this is the contact's very first inbound message
   // BEFORE we insert, so the count is accurate. Covers the case where
@@ -725,7 +788,7 @@ async function processMessage(
     // Only populated for content_type='interactive'. Migration 010 added
     // the column; null for every other content_type so existing inserts
     // behave identically.
-    interactive_reply_id: interactiveReplyId,
+    interactive_reply_id: interactiveReplyId ?? buttonPayload ?? null,
   })
 
   if (msgError) {
@@ -750,8 +813,13 @@ async function processMessage(
 
   // If this contact was a recent broadcast recipient, flag the reply
   // so the broadcast's `replied_count` advances (via the aggregate
-  // trigger installed in migration 003).
-  await flagBroadcastReplyIfAny(accountId, contactRecord.id)
+  // trigger installed in migration 003). QR button taps also stamp
+  // clicked_at / reply_payload (migration 048).
+  await flagBroadcastReplyIfAny(accountId, contactRecord.id, {
+    contextMessageId: message.context?.id ?? null,
+    // Only template quick-reply (type=button) counts as a funnel click.
+    replyPayload: message.type === 'button' ? buttonPayload : null,
+  })
 
   // STOP / unsubscribe → opt out before automations fire.
   const inboundText = contentText ?? message.text?.body ?? ''
@@ -843,6 +911,8 @@ async function parseMessageContent(
    * tap with the right affordance. Null for everything else.
    */
   interactiveReplyId: string | null
+  /** Template quick-reply `button.payload` (type=button). */
+  buttonPayload: string | null
 }> {
   // getMediaUrl signature is (mediaId, accessToken) — earlier code had
   // the args swapped, so every verification hit an invalid Meta URL and
@@ -870,6 +940,7 @@ async function parseMessageContent(
     mediaUrl: null,
     mediaType: null,
     interactiveReplyId: null,
+    buttonPayload: null,
   }
 
   switch (message.type) {
@@ -945,6 +1016,17 @@ async function parseMessageContent(
 
     case 'reaction':
       return { ...empty, contentText: message.reaction?.emoji || null }
+
+    case 'button': {
+      // Template quick-reply tap. Meta sends type=button with payload/text.
+      const payload = message.button?.payload?.trim() || null
+      const text = message.button?.text?.trim() || null
+      return {
+        ...empty,
+        contentText: text || payload || '[Button reply]',
+        buttonPayload: payload || text,
+      }
+    }
 
     case 'interactive': {
       // The customer tapped a reply button or a list row on a message
