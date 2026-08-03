@@ -472,6 +472,24 @@ async function handleStatusUpdate(
     }
   }
 
+  // 3) Fan-out status to CRM / integration webhooks
+  if (accountId) {
+    try {
+      const { enqueueOutboundWebhooks } = await import(
+        '@/lib/webhooks/outbound'
+      )
+      await enqueueOutboundWebhooks(supabaseAdmin(), accountId, 'message.status_updated', {
+        whatsapp_message_id: status.id,
+        status: status.status,
+        recipient_id: status.recipient_id,
+        timestamp: status.timestamp,
+        phone_number_id: phoneNumberId,
+      })
+    } catch (err) {
+      console.error('outbound status webhook enqueue failed:', err)
+    }
+  }
+
 }
 
 /**
@@ -735,9 +753,55 @@ async function processMessage(
   // trigger installed in migration 003).
   await flagBroadcastReplyIfAny(accountId, contactRecord.id)
 
+  // STOP / unsubscribe → opt out before automations fire.
+  const inboundText = contentText ?? message.text?.body ?? ''
+  try {
+    const { maybeApplyOptOutFromInbound } = await import(
+      '@/lib/contacts/opt-out'
+    )
+    await maybeApplyOptOutFromInbound(
+      supabaseAdmin(),
+      contactRecord.id,
+      inboundText,
+    )
+  } catch (err) {
+    console.error('opt-out apply failed:', err)
+  }
+
+  // Advance active conversational flow if any, then automations.
+  try {
+    const { handleInboundFlowMessage } = await import('@/lib/flows/runner')
+    await handleInboundFlowMessage({
+      accountId,
+      userId: configOwnerUserId,
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      messageText: inboundText,
+      interactiveReplyId: interactiveReplyId ?? null,
+      accessToken,
+      phoneNumberId,
+    })
+  } catch (err) {
+    console.error('[flows] inbound failed:', err)
+  }
+
   // Fire automations for this inbound. Awaited inside `after()` so the
   // function stays alive until steps finish (issue #409).
-  const inboundText = contentText ?? message.text?.body ?? ''
+  try {
+    const { enqueueOutboundWebhooks } = await import(
+      '@/lib/webhooks/outbound'
+    )
+    await enqueueOutboundWebhooks(supabaseAdmin(), accountId, 'message.received', {
+      conversation_id: conversation.id,
+      contact_id: contactRecord.id,
+      whatsapp_message_id: message.id,
+      text: inboundText.slice(0, 2000),
+      phone_number_id: phoneNumberId,
+    })
+  } catch (err) {
+    console.error('outbound message.received enqueue failed:', err)
+  }
+
   const automationTriggers: (
     | 'new_contact_created'
     | 'first_inbound_message'

@@ -80,6 +80,7 @@ describe("resolveAudienceContactIds", () => {
       { from } as never,
       "acct-1",
       { mode: "tags", tag_ids: ["tag-1", "tag-2", "missing"], tag_match: "any" },
+      { excludeOptOuts: false },
     );
     expect(ids.sort()).toEqual(["c1", "c2"]);
   });
@@ -103,6 +104,7 @@ describe("resolveAudienceContactIds", () => {
       { from } as never,
       "acct-1",
       { mode: "all" },
+      { excludeOptOuts: false },
     );
     expect(ids).toEqual(["a", "b"]);
   });

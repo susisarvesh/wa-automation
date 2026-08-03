@@ -108,6 +108,11 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  /** STOP / global WhatsApp opt-out (migration 047). */
+  whatsapp_opt_out?: boolean;
+  marketing_opt_out?: boolean;
+  opt_out_at?: string | null;
+  opt_out_reason?: string | null;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
@@ -613,6 +618,10 @@ export interface Automation {
   is_active: boolean;
   execution_count: number;
   last_executed_at?: string | null;
+  /** Visibility fields from migration 047. */
+  last_run_at?: string | null;
+  last_error?: string | null;
+  last_run_status?: string | null;
   created_at: string;
   updated_at: string;
 }

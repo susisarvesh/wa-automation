@@ -19,6 +19,7 @@ import {
   Users,
   X,
   Zap,
+  Workflow,
 } from "lucide-react";
 
 interface NavItem {
@@ -30,6 +31,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/home", label: "Home", icon: Home },
   { href: "/automations", label: "Automations", icon: Zap },
+  { href: "/flows", label: "Flows", icon: Workflow },
   { href: "/inbox", label: "Inbox", icon: MessageSquare },
   { href: "/contacts", label: "Customers", icon: Users },
   { href: "/broadcasts", label: "Campaigns", icon: Megaphone },

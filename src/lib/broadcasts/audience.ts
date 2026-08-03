@@ -178,24 +178,51 @@ async function resolveTaggedContactIds(
 
 /**
  * Resolve distinct contact IDs for an audience filter.
- * Does not filter by phone validity — use filterSendableContactIds for that.
+ * Excludes WhatsApp / marketing opt-outs by default.
  */
 export async function resolveAudienceContactIds(
   admin: SupabaseClient,
   accountId: string,
   filter: BroadcastAudienceFilter,
+  opts?: { excludeOptOuts?: boolean; marketingOnly?: boolean },
 ): Promise<string[]> {
+  let ids: string[];
   if (filter.mode === "all") {
-    return resolveAllContactIds(admin, accountId);
-  }
-  if (filter.mode === "contacts") {
+    ids = await resolveAllContactIds(admin, accountId);
+  } else if (filter.mode === "contacts") {
     const { data, error } = await admin
       .from("contacts")
       .select("id")
       .eq("account_id", accountId)
       .in("id", filter.contact_ids);
     if (error) throw new Error(error.message);
-    return (data ?? []).map((r) => r.id as string);
+    ids = (data ?? []).map((r) => r.id as string);
+  } else {
+    ids = await resolveTaggedContactIds(admin, accountId, filter);
   }
-  return resolveTaggedContactIds(admin, accountId, filter);
+
+  const excludeOptOuts = opts?.excludeOptOuts !== false;
+  if (!excludeOptOuts || ids.length === 0) return ids;
+
+  // Drop opted-out contacts (global STOP and marketing opt-out for campaigns).
+  const pageSize = 500;
+  const allowed = new Set<string>();
+  for (let i = 0; i < ids.length; i += pageSize) {
+    const chunk = ids.slice(i, i + pageSize);
+    let q = admin
+      .from("contacts")
+      .select("id, whatsapp_opt_out, marketing_opt_out")
+      .eq("account_id", accountId)
+      .in("id", chunk)
+      .eq("whatsapp_opt_out", false);
+    if (opts?.marketingOnly !== false) {
+      q = q.eq("marketing_opt_out", false);
+    }
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      if (row.id) allowed.add(row.id as string);
+    }
+  }
+  return ids.filter((id) => allowed.has(id));
 }

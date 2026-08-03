@@ -296,6 +296,16 @@ export default function AutomationsPage() {
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">
                         {a.description ?? "Automation"}
                       </p>
+                      {(a.last_run_at || a.last_error) && (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Last run:{" "}
+                          {a.last_run_at
+                            ? new Date(a.last_run_at).toLocaleString()
+                            : "—"}
+                          {a.last_run_status ? ` (${a.last_run_status})` : ""}
+                          {a.last_error ? ` · ${a.last_error}` : ""}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       <Button

@@ -4,6 +4,7 @@ import {
   PlugZap,
   Building2,
   KeyRound,
+  Webhook,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -14,6 +15,7 @@ export const SETTINGS_SECTIONS = [
   'appearance',
   'whatsapp',
   'api-keys',
+  'webhooks',
 ] as const;
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
@@ -33,6 +35,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   appearance: { id: 'appearance', label: 'Appearance', icon: Palette, group: 'account' },
   whatsapp: { id: 'whatsapp', label: 'WhatsApp', icon: PlugZap, group: 'workspace' },
   'api-keys': { id: 'api-keys', label: 'API keys', icon: KeyRound, group: 'workspace' },
+  webhooks: { id: 'webhooks', label: 'Webhooks', icon: Webhook, group: 'workspace' },
 };
 
 export const RAIL_GROUPS: { label: string | null; group: SectionMeta['group'] }[] = [

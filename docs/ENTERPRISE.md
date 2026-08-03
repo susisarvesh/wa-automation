@@ -55,3 +55,14 @@ NEXT_PUBLIC_PLATFORM_ADMIN_EMAILS=vsmarttechindia@gmail.com
 3. Rotate Meta system-user tokens on a calendar; Connect save writes `whatsapp.token_rotate` audit rows.
 4. Review `audit_logs` (admin+ of an account) after incidents.
 5. Load-test webhook bursts before onboarding large WA volumes.
+
+## Best-in-class wedge (migration 047+)
+
+See [SAAS.md](./SAAS.md) and [public-api.md](./public-api.md):
+
+- Contact opt-out (`STOP`) + campaign exclusion
+- Idempotent `POST /api/v1/messages`
+- Outbound signed webhooks for delivery status
+- `time_based` automation scheduler on keepalive
+- Flows runner + `/flows` starter UI
+- Quiet hours / frequency caps on campaigns

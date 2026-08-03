@@ -10,6 +10,7 @@ import { BusinessProfilePanel } from '@/components/settings/business-profile-pan
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
 import { ApiKeysPanel } from '@/components/settings/api-keys-panel';
+import { WebhooksPanel } from '@/components/settings/webhooks-panel';
 import {
   resolveSection,
   type SettingsSection,
@@ -56,6 +57,7 @@ function SettingsPageInner() {
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
     'api-keys': <ApiKeysPanel />,
+    webhooks: <WebhooksPanel />,
   };
 
   return (

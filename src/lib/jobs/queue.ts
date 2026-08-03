@@ -3,8 +3,10 @@ import { log } from "@/lib/observability/logger";
 
 export type JobType =
   | "webhook.process"
+  | "webhook.deliver"
   | "whatsapp.send_retry"
   | "automation.drain"
+  | "automation.time_based"
   | "broadcast.send_batch";
 
 const BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 900_000, 1_800_000];

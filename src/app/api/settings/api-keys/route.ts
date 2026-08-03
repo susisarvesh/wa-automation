@@ -56,7 +56,13 @@ export async function POST(request: Request) {
       ? body.name.trim().slice(0, 80)
       : "API key";
 
-  let scopes: ApiKeyScope[] = ["messages:send", "account:read"];
+  let scopes: ApiKeyScope[] = [
+    "messages:send",
+    "account:read",
+    "contacts:read",
+    "contacts:write",
+    "conversations:read",
+  ];
   if (Array.isArray(body.scopes) && body.scopes.length > 0) {
     const allowed = new Set<string>(API_KEY_SCOPES);
     scopes = body.scopes

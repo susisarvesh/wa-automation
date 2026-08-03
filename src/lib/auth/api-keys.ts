@@ -4,6 +4,10 @@ import { supabaseAdmin } from "@/lib/automations/admin-client";
 export const API_KEY_SCOPES = [
   "messages:send",
   "account:read",
+  "contacts:read",
+  "contacts:write",
+  "conversations:read",
+  "webhooks:manage",
 ] as const;
 
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];

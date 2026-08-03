@@ -36,6 +36,21 @@ export async function drainJobQueue(
           "@/lib/broadcasts/send"
         );
         await processBroadcastSendBatch(admin, broadcastId);
+      } else if (job.job_type === "webhook.deliver") {
+        const deliveryId = job.payload?.deliveryId;
+        const endpointId = job.payload?.endpointId;
+        if (typeof deliveryId !== "string" || typeof endpointId !== "string") {
+          throw new Error("webhook.deliver missing deliveryId/endpointId");
+        }
+        const { deliverOutboundWebhook } = await import(
+          "@/lib/webhooks/outbound"
+        );
+        await deliverOutboundWebhook(admin, deliveryId, endpointId);
+      } else if (job.job_type === "automation.time_based") {
+        const { runDueTimeBasedAutomations } = await import(
+          "@/lib/automations/time-based"
+        );
+        await runDueTimeBasedAutomations(admin);
       } else {
         log.warn("unknown job_type", { jobType: job.job_type, id: job.id });
       }

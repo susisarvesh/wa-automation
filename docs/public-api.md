@@ -2,7 +2,8 @@
 
 Drive this workspace from Vsmart CRM or your own software using **API keys**.
 
-**Base URL (production):** `https://wa-automation-one.vercel.app/api/v1`
+**Base URL (production):** `https://wa.vsmarttec.net/api/v1`  
+(also: `https://wa-automation-one.vercel.app/api/v1`)
 
 ## Auth
 
@@ -13,16 +14,17 @@ Drive this workspace from Vsmart CRM or your own software using **API keys**.
 ```http
 Authorization: Bearer wak_<prefix>_<secret>
 Content-Type: application/json
+Idempotency-Key: ticket:VS-123:created   # optional, strongly recommended
 ```
 
-Scopes (MVP):
+Scopes:
 
 | Scope | Ability |
 |-------|---------|
-| `account:read` | `GET /me` |
+| `account:read` | `GET /me`, list contacts/conversations (fallback) |
 | `messages:send` | `POST /messages` |
-
-Revoking a key in Settings immediately returns `401`.
+| `contacts:read` / `contacts:write` | Contacts API |
+| `conversations:read` | Conversation history |
 
 ## Endpoints
 
@@ -30,60 +32,61 @@ Revoking a key in Settings immediately returns `401`.
 
 Probe the key and WhatsApp connection.
 
-```bash
-curl -sS -H "Authorization: Bearer $WA_STUDIO_API_KEY" \
-  https://wa-automation-one.vercel.app/api/v1/me
-```
-
 ### `POST /messages`
 
-Send a **text** or **template** message to an E.164 phone. Creates/finds the contact and conversation.
+Send **text** or **template**. Honors **Idempotency-Key** (replay same response). Returns `409 opted_out` if the contact sent STOP.
 
-**Text**
+Optional: `header_text`, `button_params`.
 
-```bash
-curl -sS -X POST \
-  -H "Authorization: Bearer $WA_STUDIO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"to":"+919876543210","type":"text","text":"Hello from CRM"}' \
-  https://wa-automation-one.vercel.app/api/v1/messages
+Success `201`:
+
+```json
+{
+  "data": {
+    "message_id": "…",
+    "whatsapp_message_id": "wamid.…",
+    "conversation_id": "…"
+  }
+}
 ```
 
-**Template** (must be Meta-approved on the connected WABA)
+### `GET /contacts` · `POST /contacts`
 
-```bash
-curl -sS -X POST \
-  -H "Authorization: Bearer $WA_STUDIO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "to": "+919876543210",
-    "type": "template",
-    "template_name": "ticket_created_v1",
-    "language": "en_US",
-    "customer_name": "Ada",
-    "body_params": ["Ada", "VS/123", "Printer down"]
-  }' \
-  https://wa-automation-one.vercel.app/api/v1/messages
-```
+List/search by `?phone=` or `?q=`, or upsert a contact + conversation.
 
-Optional: `header_text`, `button_params` (object keyed by button index).
+### `GET /conversations/:id/messages`
 
-## Response shape
+Recent message history for CRM sync (`?limit=50`).
 
-Success: `{ "data": { ... } }`  
-Error: `{ "error": { "code": "...", "message": "..." } }`
+## Outbound webhooks (Studio → CRM)
+
+**Settings → Webhooks** — register an HTTPS URL. Events:
+
+- `message.status_updated` — Meta delivery ladder (`sent` / `delivered` / `read` / `failed`)
+- `message.received` — (subscribe; fan-out expanding)
+
+Headers:
+
+- `X-Wacrm-Timestamp` — unix seconds
+- `X-Wacrm-Signature` — HMAC-SHA256 hex of `timestamp.body` with the endpoint secret
 
 ## CRM env
 
 ```bash
-WA_STUDIO_BASE_URL=https://wa-automation-one.vercel.app
+WA_STUDIO_BASE_URL=https://wa.vsmarttec.net
 WA_STUDIO_API_KEY=wak_...
-WA_STUDIO_TEMPLATE_CREATED=ticket_created_v1
-WA_STUDIO_TEMPLATE_STATUS=ticket_status_v1
-WA_STUDIO_TEMPLATE_CLOSED=ticket_closed_v1
+WA_STUDIO_TEMPLATE_CREATED=vsmart_ticket_created_v1
+WA_STUDIO_TEMPLATE_STATUS=vsmart_ticket_status_v1
+WA_STUDIO_TEMPLATE_CLOSED=vsmart_ticket_closed_v1
 WA_STUDIO_TEMPLATE_LANG=en_US
 ```
 
+Approve those Utility templates in Meta first. CRM client sends `Idempotency-Key: ticket:<id>:<event>` and retries failed posts.
+
 ## Limits
 
-~120 requests/minute per API key (in-process). Also subject to the account WhatsApp send budget.
+~120 requests/minute per API key. Also subject to the account WhatsApp send budget.
+
+## Compliance
+
+Inbound `STOP` / `UNSUBSCRIBE` marks `contacts.whatsapp_opt_out` (+ marketing). Campaigns exclude opted-out contacts. Quiet hours / frequency caps live on `accounts.messaging_policy` and broadcast flags.

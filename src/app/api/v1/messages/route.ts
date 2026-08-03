@@ -1,5 +1,12 @@
+import { NextResponse } from "next/server";
 import { requireApiKey } from "@/lib/auth/api-keys";
 import { v1Error, v1FromError, v1Ok } from "@/lib/api/v1";
+import {
+  getIdempotencyKey,
+  hashRequestBody,
+  lookupIdempotentResponse,
+  storeIdempotentResponse,
+} from "@/lib/api/idempotency";
 import { supabaseAdmin } from "@/lib/automations/admin-client";
 import {
   checkRateLimit,
@@ -15,10 +22,12 @@ import {
   ensureContactAndConversation,
   getAccountOwnerUserId,
 } from "@/lib/whatsapp/ensure-conversation";
+import { isPhoneWhatsAppOptedOut } from "@/lib/contacts/opt-out";
 
 /**
  * POST /api/v1/messages
  * Send a text or template WhatsApp message to a phone number.
+ * Supports Idempotency-Key header.
  */
 export async function POST(request: Request) {
   try {
@@ -35,7 +44,23 @@ export async function POST(request: Request) {
     );
     if (!accountLimit.success) return rateLimitResponse(accountLimit);
 
-    const body = await request.json().catch(() => null);
+    const rawText = await request.text();
+    const idemKey = getIdempotencyKey(request);
+    const admin = supabaseAdmin();
+
+    const replay = await lookupIdempotentResponse(
+      admin,
+      ctx.accountId,
+      idemKey,
+    );
+    if (replay) return replay;
+
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : null;
+    } catch {
+      return v1Error("bad_request", "Invalid JSON body", 400);
+    }
     if (!body || typeof body !== "object") {
       return v1Error("bad_request", "Invalid JSON body", 400);
     }
@@ -45,7 +70,7 @@ export async function POST(request: Request) {
       typeof body.type === "string"
         ? body.type.trim()
         : typeof body.message_type === "string"
-          ? body.message_type.trim()
+          ? String(body.message_type).trim()
           : "";
 
     if (!to || !type) {
@@ -57,6 +82,24 @@ export async function POST(request: Request) {
         'type must be "text" or "template"',
         400,
       );
+    }
+
+    if (await isPhoneWhatsAppOptedOut(admin, ctx.accountId, to)) {
+      const errBody = {
+        error: {
+          code: "opted_out",
+          message: "Contact has opted out of WhatsApp messages",
+        },
+      };
+      await storeIdempotentResponse(
+        admin,
+        ctx.accountId,
+        idemKey,
+        hashRequestBody(rawText),
+        409,
+        errBody,
+      );
+      return NextResponse.json(errBody, { status: 409 });
     }
 
     const text =
@@ -90,7 +133,7 @@ export async function POST(request: Request) {
     try {
       validateSendMessageParams({
         messageType: type,
-        contentText: text,
+        contentText: text as string | null,
         templateName,
       });
     } catch (err) {
@@ -100,7 +143,6 @@ export async function POST(request: Request) {
       throw err;
     }
 
-    const admin = supabaseAdmin();
     const ownerUserId = await getAccountOwnerUserId(admin, ctx.accountId);
     const contactName =
       typeof body.customer_name === "string"
@@ -116,7 +158,7 @@ export async function POST(request: Request) {
         ctx.accountId,
         ownerUserId,
         to,
-        contactName,
+        contactName as string | null,
       );
       conversationId = ensured.conversationId;
     } catch (err) {
@@ -145,21 +187,29 @@ export async function POST(request: Request) {
     const result = await sendMessageToConversation(admin, ctx.accountId, {
       conversationId,
       messageType: type,
-      contentText: text,
+      contentText: text as string | null,
       templateName,
-      templateLanguage: language,
+      templateLanguage: language as string,
       templateParams: bodyParams,
       templateMessageParams,
     });
 
-    return v1Ok(
-      {
+    const okBody = {
+      data: {
         message_id: result.messageId,
         whatsapp_message_id: result.whatsappMessageId,
         conversation_id: conversationId,
       },
+    };
+    await storeIdempotentResponse(
+      admin,
+      ctx.accountId,
+      idemKey,
+      hashRequestBody(rawText),
       201,
+      okBody,
     );
+    return NextResponse.json(okBody, { status: 201 });
   } catch (err) {
     return v1FromError(err);
   }

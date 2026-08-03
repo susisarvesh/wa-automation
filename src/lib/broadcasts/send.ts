@@ -138,9 +138,27 @@ export async function processBroadcastSendBatch(
 
   const templateVars = parseTemplateVariables(broadcast.template_variables);
 
+  const {
+    loadAccountMessagingPolicy,
+    isInQuietHours,
+    countRecentBroadcastSends,
+  } = await import("@/lib/broadcasts/messaging-policy");
+  const policy = await loadAccountMessagingPolicy(admin, accountId);
+  if (
+    broadcast.respect_quiet_hours !== false &&
+    isInQuietHours(policy)
+  ) {
+    // Defer — leave pending for next keepalive cycle.
+    return { sent: 0, failed: 0, remaining: -1 };
+  }
+  const maxPerDay =
+    typeof broadcast.max_per_contact_per_day === "number"
+      ? (broadcast.max_per_contact_per_day as number)
+      : policy.max_marketing_per_contact_per_day;
+
   const { data: recipients, error: rErr } = await admin
     .from("broadcast_recipients")
-    .select("id, contact_id, contact:contacts(id, name, phone, company, email)")
+    .select("id, contact_id, contact:contacts(id, name, phone, company, email, whatsapp_opt_out, marketing_opt_out)")
     .eq("broadcast_id", broadcastId)
     .eq("status", "pending")
     .order("created_at", { ascending: true })
@@ -167,7 +185,43 @@ export async function processBroadcastSendBatch(
       phone?: string;
       company?: string;
       email?: string;
+      whatsapp_opt_out?: boolean;
+      marketing_opt_out?: boolean;
     } | null;
+
+    if (
+      broadcast.respect_opt_out !== false &&
+      (contact?.whatsapp_opt_out || contact?.marketing_opt_out)
+    ) {
+      await admin
+        .from("broadcast_recipients")
+        .update({
+          status: "failed",
+          error_message: "Contact opted out",
+        })
+        .eq("id", rec.id);
+      failed += 1;
+      continue;
+    }
+
+    if (typeof maxPerDay === "number" && maxPerDay > 0 && rec.contact_id) {
+      const recent = await countRecentBroadcastSends(
+        admin,
+        rec.contact_id as string,
+      );
+      if (recent >= maxPerDay) {
+        await admin
+          .from("broadcast_recipients")
+          .update({
+            status: "failed",
+            error_message: "Frequency cap exceeded",
+          })
+          .eq("id", rec.id);
+        failed += 1;
+        continue;
+      }
+    }
+
     const phoneRaw = contact?.phone ?? null;
     const phone = phoneRaw ? sanitizePhoneForMeta(phoneRaw) : "";
 

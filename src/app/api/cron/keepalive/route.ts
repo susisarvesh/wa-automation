@@ -53,20 +53,37 @@ export async function GET(request: Request) {
 
     broadcastsPromoted = await promoteScheduledBroadcasts(admin);
 
-    // Retry / catch-up for webhook + broadcast.send_batch jobs.
-    jobs = await drainJobQueue(admin, 15);
+    // Retry / catch-up for webhook + broadcast + time_based jobs.
+    jobs = await drainJobQueue(admin, 20);
+
+    // Schedule / run time_based automations every keepalive tick.
+    const { runDueTimeBasedAutomations } = await import(
+      "@/lib/automations/time-based"
+    );
+    const timeBased = await runDueTimeBasedAutomations(admin);
+
+    return NextResponse.json({
+      ok: true,
+      warm: true,
+      db: dbOk,
+      pending_due: pendingDue,
+      broadcasts_promoted: broadcastsPromoted,
+      jobs,
+      time_based_fired: timeBased.fired,
+      ms: Date.now() - started,
+      at: new Date().toISOString(),
+    });
   } catch (err) {
     console.error("[cron/keepalive]", err);
+    return NextResponse.json({
+      ok: false,
+      warm: true,
+      db: dbOk,
+      pending_due: pendingDue,
+      broadcasts_promoted: broadcastsPromoted,
+      jobs,
+      ms: Date.now() - started,
+      at: new Date().toISOString(),
+    });
   }
-
-  return NextResponse.json({
-    ok: true,
-    warm: true,
-    db: dbOk,
-    pending_due: pendingDue,
-    broadcasts_promoted: broadcastsPromoted,
-    jobs,
-    ms: Date.now() - started,
-    at: new Date().toISOString(),
-  });
 }
