@@ -34,8 +34,11 @@ import {
 } from './template-form';
 import { cn } from '@/lib/utils';
 
-function initialForm(editing: MessageTemplate | null): TemplateFormData {
-  if (!editing) return { ...vsmartStarterTemplateForm };
+function initialForm(
+  editing: MessageTemplate | null,
+  prefill?: TemplateFormData | null,
+): TemplateFormData {
+  if (!editing) return { ...(prefill ?? vsmartStarterTemplateForm) };
   const form = formFromTemplate(editing);
   if (isLikelyMetaSampleTemplateName(editing.name)) {
     form.name = nextCloneTemplateName(editing.name, [editing.name]);
@@ -56,16 +59,19 @@ type ButtonPatch = {
 
 export function TemplateBuilder({
   editing,
+  prefill = null,
   onCancel,
   onSaved,
 }: {
   editing: MessageTemplate | null;
+  /** When creating, seed the form from the enterprise pack. */
+  prefill?: TemplateFormData | null;
   onCancel: () => void;
   onSaved: () => void;
 }) {
   const t = useTranslations('Settings.templates');
   const [form, setForm] = useState<TemplateFormData>(() =>
-    initialForm(editing),
+    initialForm(editing, prefill),
   );
   const [submitting, setSubmitting] = useState(false);
   const isEdit = editing !== null;
@@ -211,7 +217,7 @@ export function TemplateBuilder({
               ? 'This is a Meta sample template — it can’t be changed on Meta. Saving creates your own copy for approval.'
               : isEdit
                 ? t('dialogEditDesc')
-                : 'Prefilled with a Vsmart Technologies service-update style (from vsmarttec.com). Edit the copy, then submit to Meta for approval.'}
+                : 'Enterprise Vsmart copy is prefilled. Review samples and buttons, then submit to Meta for approval.'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -219,9 +225,11 @@ export function TemplateBuilder({
             <Button
               type="button"
               variant="outline"
-              onClick={() => setForm({ ...vsmartStarterTemplateForm })}
+              onClick={() =>
+                setForm({ ...(prefill ?? vsmartStarterTemplateForm) })
+              }
             >
-              Reset Vsmart starter
+              Reset pack copy
             </Button>
           ) : null}
           <Button type="button" variant="outline" onClick={onCancel}>

@@ -81,7 +81,17 @@ WA_STUDIO_TEMPLATE_CLOSED=vsmart_ticket_closed_v1
 WA_STUDIO_TEMPLATE_LANG=en_US
 ```
 
-Approve those Utility templates in Meta first. CRM client sends `Idempotency-Key: ticket:<id>:<event>` and retries failed posts.
+Approve those Utility templates in Meta first (Templates → **Vsmart enterprise pack** → Use template → Submit). CRM client sends `Idempotency-Key: ticket:<id>:<event>` and retries failed posts.
+
+### Ticket template bodies (en_US)
+
+| Name | Vars | Purpose |
+|------|------|---------|
+| `vsmart_ticket_created_v1` | `{{1}}` name, `{{2}}` ticket id, `{{3}}` summary | Ticket opened |
+| `vsmart_ticket_status_v1` | `{{1}}` name, `{{2}}` ticket id, `{{3}}` status, `{{4}}` note | Status change |
+| `vsmart_ticket_closed_v1` | `{{1}}` name, `{{2}}` ticket id, `{{3}}` resolution | Closed / resolved |
+
+Also in the pack: site visit, AMC reminder, appointment, quote ready, lead follow-up, campaign offer (tracked URL), re-engage. See `src/lib/whatsapp/vsmart-enterprise-templates.ts`.
 
 ## Limits
 

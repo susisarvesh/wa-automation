@@ -20,6 +20,11 @@ import {
   isLikelyMetaSampleTemplateName,
   isWorkspaceVisibleTemplateName,
 } from '@/lib/whatsapp/meta-errors';
+import {
+  VSMART_ENTERPRISE_TEMPLATES,
+  VSMART_USE_CASE_LABELS,
+  type VsmartTemplateUseCase,
+} from '@/lib/whatsapp/vsmart-enterprise-templates';
 import type { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,12 +37,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { TemplateBuilder } from './template-builder';
+import type { TemplateFormData } from './template-form';
 import { cn } from '@/lib/utils';
 
 type View =
   | { mode: 'list' }
-  | { mode: 'create' }
+  | { mode: 'create'; prefill?: TemplateFormData | null }
   | { mode: 'edit'; template: MessageTemplate };
+
+const USE_CASE_ORDER: VsmartTemplateUseCase[] = [
+  'crm_tickets',
+  'field_service',
+  'sales',
+  'campaigns',
+];
 
 export function TemplateCatalog() {
   const t = useTranslations('Settings.templates');
@@ -185,6 +198,7 @@ export function TemplateCatalog() {
     return (
       <TemplateBuilder
         editing={view.mode === 'edit' ? view.template : null}
+        prefill={view.mode === 'create' ? (view.prefill ?? null) : null}
         onCancel={() => setView({ mode: 'list' })}
         onSaved={async () => {
           setView({ mode: 'list' });
@@ -193,6 +207,10 @@ export function TemplateCatalog() {
       />
     );
   }
+
+  const existingNames = new Set(
+    templates.map((t) => t.name.trim().toLowerCase()),
+  );
 
   if (loading || authLoading) {
     return (
@@ -244,6 +262,87 @@ export function TemplateCatalog() {
           Viewing only — owners and admins can create or sync templates.
         </p>
       ) : null}
+
+      <section className="space-y-4">
+        <div className="space-y-1">
+          <h3 className="font-heading text-lg font-semibold tracking-tight">
+            Vsmart enterprise pack
+          </h3>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            Professional copy for CRM tickets, field service, sales, and
+            campaigns. Open a card, review variables, then submit to Meta for
+            approval. Ticket names match CRM env vars in the public API docs.
+          </p>
+        </div>
+
+        {USE_CASE_ORDER.map((useCase) => {
+          const items = VSMART_ENTERPRISE_TEMPLATES.filter(
+            (t) => t.useCase === useCase,
+          );
+          if (items.length === 0) return null;
+          return (
+            <div key={useCase} className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+                {VSMART_USE_CASE_LABELS[useCase]}
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {items.map((pack) => {
+                  const already = existingNames.has(
+                    pack.form.name.trim().toLowerCase(),
+                  );
+                  return (
+                    <article
+                      key={pack.id}
+                      className="vsmart-shape flex flex-col border border-border bg-card p-4 shadow-sm"
+                    >
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <h4 className="font-heading text-sm font-semibold leading-snug">
+                          {pack.title}
+                        </h4>
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 text-[10px] font-normal"
+                        >
+                          {pack.badge}
+                        </Badge>
+                      </div>
+                      <p className="mb-3 flex-1 text-xs leading-relaxed text-muted-foreground">
+                        {pack.description}
+                      </p>
+                      <p className="mb-3 font-mono text-[11px] text-muted-foreground">
+                        {pack.form.name}
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={already ? 'outline' : 'default'}
+                        disabled={!canEditSettings}
+                        onClick={() =>
+                          setView({
+                            mode: 'create',
+                            prefill: { ...pack.form },
+                          })
+                        }
+                      >
+                        {already ? 'Open again' : 'Use template'}
+                      </Button>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
+      <div className="space-y-1">
+        <h3 className="font-heading text-lg font-semibold tracking-tight">
+          Your Meta templates
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Synced and submitted templates for this workspace.
+        </p>
+      </div>
 
       {templates.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border/80 px-6 py-14 text-center">

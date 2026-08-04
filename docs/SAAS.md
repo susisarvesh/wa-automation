@@ -12,7 +12,8 @@ After dogfood (Vsmart CRM + Studio) is reliable on `https://wa.vsmarttec.net`:
 - [x] Conversational Flows (starter builder)
 - [ ] Billing / plan limits (sends, seats) — when selling
 - [ ] Self-serve Connect wizard polish for new tenants
-- [ ] Vsmart template starter pack auto-seed on Connect
+- [x] Vsmart enterprise template pack in Templates UI (submit to Meta)
+- [ ] Auto-seed pack on Connect (optional later)
 
 ## Campaigns Pro notes
 
