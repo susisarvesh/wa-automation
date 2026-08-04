@@ -42,7 +42,11 @@ export type VsmartEnterpriseTemplate = {
 
 const FOOTER_UTILITY = "Vsmart Technologies";
 const FOOTER_BRAND = "Vsmart Technologies · 15 years of excellence";
-const PHONE = "919444971577";
+/** Matches CRM Contact Support modal (+91 96000 82811 / support@vsmarttec.com). */
+export const VSMART_SUPPORT_PHONE_E164 = "919600082811";
+export const VSMART_SUPPORT_PHONE_DISPLAY = "+91 96000 82811";
+export const VSMART_SUPPORT_EMAIL = "support@vsmarttec.com";
+const PHONE = VSMART_SUPPORT_PHONE_E164;
 const WEB = "https://vsmarttec.com";
 
 function base(
